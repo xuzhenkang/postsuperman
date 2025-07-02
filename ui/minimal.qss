@@ -1,0 +1,5 @@
+QTableWidget {
+    background: #fff;
+    border: 1px solid #bfc5ce;
+    gridline-color: #bfc5ce;
+} 
