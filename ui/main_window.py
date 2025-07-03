@@ -60,22 +60,6 @@ class MainWindow(QWidget):
         topbar_layout.addWidget(logo)
         topbar_layout.addWidget(title)
         topbar_layout.addStretch()
-        self.send_btn = QPushButton('Send')
-        self.send_btn.setFixedWidth(80)
-        self.send_btn.setStyleSheet('''
-            QPushButton {
-                background-color: #1976d2;
-                color: white;
-                font-weight: bold;
-                border-radius: 6px;
-                padding: 8px 0;
-                font-size: 16px;
-            }
-            QPushButton:pressed {
-                background-color: #115293;
-            }
-        ''')
-        topbar_layout.addWidget(self.send_btn)
         main_layout.addWidget(topbar)
 
         # 主体分栏
@@ -140,140 +124,8 @@ class MainWindow(QWidget):
         self.req_tabs = QTabWidget()
         self.req_tabs.setObjectName('RequestTabs')
         self.req_tabs.setTabsClosable(True)
-        req_tab = QWidget()
-        req_tab_layout = QVBoxLayout(req_tab)
-        req_tab_layout.setContentsMargins(0, 0, 0, 0)
-        req_tab_layout.setSpacing(0)
-        # 请求行
-        req_line = QFrame()
-        req_line.setObjectName('RequestLine')
-        req_line_layout = QHBoxLayout(req_line)
-        req_line_layout.setContentsMargins(16, 16, 16, 0)
-        req_line_layout.setSpacing(8)
-        self.method_combo = QComboBox()
-        self.method_combo.setObjectName('MethodCombo')
-        self.method_combo.addItems(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'])
-        self.url_edit = QLineEdit()
-        self.url_edit.setObjectName('UrlEdit')
-        self.url_edit.setPlaceholderText('Enter request URL...')
-        req_line_layout.addWidget(self.method_combo)
-        req_line_layout.addWidget(self.url_edit)
-        req_line_layout.addWidget(self.send_btn)
-        req_tab_layout.addWidget(req_line)
-        # Send按钮下方添加Code、Import、Save按钮，右对齐
-        code_import_row = QHBoxLayout()
-        code_import_row.setContentsMargins(16, 0, 16, 0)
-        code_import_row.setSpacing(8)
-        code_import_row.addStretch()
-        self.code_btn = QPushButton('Code')
-        self.import_btn = QPushButton('Import')
-        self.save_btn = QPushButton('Save')
-        code_import_row.addWidget(self.code_btn)
-        code_import_row.addWidget(self.import_btn)
-        code_import_row.addWidget(self.save_btn)
-        req_tab_layout.addLayout(code_import_row)
-        self.code_btn.clicked.connect(self.show_curl_code)
-        self.import_btn.clicked.connect(self.import_curl)
-        # Params表格
-        self.params_table = QTableWidget()
-        self.init_table(self.params_table)
-        params_widget = QWidget()
-        params_layout = QVBoxLayout(params_widget)
-        params_layout.setContentsMargins(0,0,0,0)
-        params_layout.setSpacing(0)
-        params_layout.addWidget(self.params_table)
-        # Headers表格
-        self.headers_table = QTableWidget()
-        self.init_table(self.headers_table)
-        headers_widget = QWidget()
-        headers_layout = QVBoxLayout(headers_widget)
-        headers_layout.setContentsMargins(0,0,0,0)
-        headers_layout.setSpacing(0)
-        headers_layout.addWidget(self.headers_table)
-        # form-data表格
-        self.form_table = QTableWidget()
-        self.init_table(self.form_table)
-        form_widget = QWidget()
-        form_layout = QVBoxLayout(form_widget)
-        form_layout.setContentsMargins(0,0,0,0)
-        form_layout.setSpacing(0)
-        form_layout.addWidget(self.form_table)
-        # x-www-form-urlencoded表格
-        self.url_table = QTableWidget()
-        self.init_table(self.url_table)
-        url_widget = QWidget()
-        url_layout = QVBoxLayout(url_widget)
-        url_layout.setContentsMargins(0,0,0,0)
-        url_layout.setSpacing(0)
-        url_layout.addWidget(self.url_table)
-        # 新Body Tab内容
-        body_tab = QWidget()
-        body_tab_layout = QVBoxLayout(body_tab)
-        body_tab_layout.setContentsMargins(0, 0, 0, 0)
-        body_tab_layout.setSpacing(8)
-        # 单选按钮组
-        self.body_type_group = QButtonGroup(body_tab)
-        body_type_row = QHBoxLayout()
-        self.body_none_radio = QRadioButton('none')
-        self.body_form_radio = QRadioButton('form-data')
-        self.body_url_radio = QRadioButton('x-www-form-urlencoded')
-        self.body_raw_radio = QRadioButton('raw')
-        self.body_type_group.addButton(self.body_none_radio)
-        self.body_type_group.addButton(self.body_form_radio)
-        self.body_type_group.addButton(self.body_url_radio)
-        self.body_type_group.addButton(self.body_raw_radio)
-        body_type_row.addWidget(self.body_none_radio)
-        body_type_row.addWidget(self.body_form_radio)
-        body_type_row.addWidget(self.body_url_radio)
-        body_type_row.addWidget(self.body_raw_radio)
-        body_type_row.addStretch()
-        body_tab_layout.addLayout(body_type_row)
-        # 内容区Stack
-        self.body_stack = QStackedWidget()
-        self.body_none_label = QLabel('This request does not have a body')
-        self.body_none_label.setAlignment(Qt.AlignCenter)
-        self.body_stack.addWidget(self.body_none_label)
-        self.body_stack.addWidget(form_widget)
-        self.body_stack.addWidget(url_widget)
-        # raw内容
-        raw_widget = QWidget()
-        raw_main_layout = QVBoxLayout(raw_widget)
-        raw_main_layout.setContentsMargins(0, 0, 0, 0)
-        raw_main_layout.setSpacing(4)
-        raw_top_layout = QHBoxLayout()
-        raw_top_layout.setContentsMargins(0, 0, 0, 0)
-        raw_top_layout.setSpacing(8)
-        self.raw_type_combo = QComboBox()
-        self.raw_type_combo.addItems(['JSON', 'TEXT'])
-        raw_top_layout.addWidget(self.raw_type_combo)
-        self.beautify_btn = QPushButton('Beautify')
-        self.beautify_btn.setToolTip('格式化/美化 JSON (快捷键 Ctrl+B)')
-        raw_top_layout.addWidget(self.beautify_btn)
-        raw_top_layout.addStretch()
-        raw_main_layout.addLayout(raw_top_layout)
-        self.raw_text_edit = CodeEditor()
-        self.raw_text_edit.set_mainwindow(self)
-        raw_main_layout.addWidget(self.raw_text_edit)
-        raw_widget.setLayout(raw_main_layout)
-        self.body_stack.addWidget(raw_widget)
-        # 高亮器
-        self.json_highlighter = JsonHighlighter(self.raw_text_edit.document())
-        self.raw_type_combo.currentTextChanged.connect(self.on_raw_type_changed)
-        # 绑定切换事件（只在选中时切换）
-        self.body_none_radio.toggled.connect(lambda checked: checked and self.body_stack.setCurrentIndex(0))
-        self.body_form_radio.toggled.connect(lambda checked: checked and self.body_stack.setCurrentIndex(1))
-        self.body_url_radio.toggled.connect(lambda checked: checked and self.body_stack.setCurrentIndex(2))
-        self.body_raw_radio.toggled.connect(lambda checked: checked and self.body_stack.setCurrentIndex(3))
-        self.beautify_btn.clicked.connect(self.beautify_json)
-        body_tab_layout.addWidget(self.body_stack)
-        # 下方 Params/Headers/Body Tab
-        self.req_tab = QTabWidget()
-        self.req_tab.setObjectName('ReqTab')
-        self.req_tab.addTab(params_widget, 'Params')
-        self.req_tab.addTab(headers_widget, 'Headers')
-        self.req_tab.addTab(body_tab, 'Body')
-        req_tab_layout.addWidget(self.req_tab)
-        self.req_tabs.addTab(req_tab, 'GET 示例请求')
+        req_editor = RequestEditor(self, req_name='GET 示例请求')
+        self.req_tabs.addTab(req_editor, 'GET 示例请求')
         # 响应区
         resp_card = QFrame()
         resp_card.setObjectName('ResponseCard')
@@ -318,12 +170,12 @@ class MainWindow(QWidget):
         splitter.addWidget(right_widget)
         main_layout.addWidget(splitter) 
 
-        self.send_btn.clicked.connect(self.send_request)
-        self.save_resp_btn.clicked.connect(self.save_response_to_file)
-        self.clear_resp_btn.clicked.connect(self.clear_response)
         self.new_collection_btn.clicked.connect(self.create_collection)
         self.import_collection_btn.clicked.connect(self.import_collection)
         self.collection_tree.customContextMenuRequested.connect(self.show_collection_menu)
+        self.collection_tree.itemDoubleClicked.connect(self.on_collection_item_double_clicked)
+        self.req_tabs.currentChanged.connect(self.on_req_tab_changed)
+        self.req_tabs.tabCloseRequested.connect(self.on_req_tab_closed)
 
     def init_table(self, table):
         table.setColumnCount(5)
@@ -488,91 +340,105 @@ class MainWindow(QWidget):
         copy_btn.clicked.connect(do_copy)
         dlg.exec_()
 
-    def send_request(self):
-        method = self.method_combo.currentText()
-        url = self.url_edit.text().strip()
+    def send_request(self, editor=None):
+        print(f'[DEBUG] MainWindow.send_request called, editor={editor}')
+        if editor is None:
+            print('[DEBUG] editor is None, return')
+            return
+        method = editor.method_combo.currentText()
+        url = editor.url_edit.text().strip()
+        print(f'[DEBUG] method={method}, url={url}')
         # 拼接Params
         params = {}
-        for row in range(self.params_table.rowCount()-1):
-            cb = self.params_table.cellWidget(row, 0)
+        for row in range(editor.params_table.rowCount()-1):
+            cb = editor.params_table.cellWidget(row, 0)
             if cb and not cb.isChecked():
                 continue
-            key_item = self.params_table.item(row, 1)
-            value_item = self.params_table.item(row, 2)
+            key_item = editor.params_table.item(row, 1)
+            value_item = editor.params_table.item(row, 2)
             if key_item and key_item.text().strip():
                 params[key_item.text().strip()] = value_item.text().strip() if value_item else ''
         # Headers
         headers = {}
-        for row in range(self.headers_table.rowCount()-1):
-            cb = self.headers_table.cellWidget(row, 0)
+        for row in range(editor.headers_table.rowCount()-1):
+            cb = editor.headers_table.cellWidget(row, 0)
             if cb and not cb.isChecked():
                 continue
-            key_item = self.headers_table.item(row, 1)
-            value_item = self.headers_table.item(row, 2)
+            key_item = editor.headers_table.item(row, 1)
+            value_item = editor.headers_table.item(row, 2)
             if key_item and key_item.text().strip():
                 headers[key_item.text().strip()] = value_item.text().strip() if value_item else ''
         # Body
         data = None
         json_data = None
         files = None
-        if self.body_form_radio.isChecked():
+        if editor.body_form_radio.isChecked():
             # form-data
             data = {}
-            for row in range(self.form_table.rowCount()-1):
-                cb = self.form_table.cellWidget(row, 0)
+            for row in range(editor.form_table.rowCount()-1):
+                cb = editor.form_table.cellWidget(row, 0)
                 if cb and not cb.isChecked():
                     continue
-                key_item = self.form_table.item(row, 1)
-                value_item = self.form_table.item(row, 2)
+                key_item = editor.form_table.item(row, 1)
+                value_item = editor.form_table.item(row, 2)
                 if key_item and key_item.text().strip():
                     data[key_item.text().strip()] = value_item.text().strip() if value_item else ''
-        elif self.body_url_radio.isChecked():
+        elif editor.body_url_radio.isChecked():
             # x-www-form-urlencoded
             data = {}
-            for row in range(self.url_table.rowCount()-1):
-                cb = self.url_table.cellWidget(row, 0)
+            for row in range(editor.url_table.rowCount()-1):
+                cb = editor.url_table.cellWidget(row, 0)
                 if cb and not cb.isChecked():
                     continue
-                key_item = self.url_table.item(row, 1)
-                value_item = self.url_table.item(row, 2)
+                key_item = editor.url_table.item(row, 1)
+                value_item = editor.url_table.item(row, 2)
                 if key_item and key_item.text().strip():
                     data[key_item.text().strip()] = value_item.text().strip() if value_item else ''
-        elif self.body_raw_radio.isChecked():
-            raw_type = self.raw_type_combo.currentText()
-            raw_text = self.raw_text_edit.toPlainText()
+        elif editor.body_raw_radio.isChecked():
+            # raw
+            raw_type = editor.raw_type_combo.currentText()
+            raw_text = editor.raw_text_edit.toPlainText()
             if raw_type == 'JSON':
                 try:
-                    json_data = json.loads(raw_text) if raw_text.strip() else None
-                except Exception as e:
-                    from PyQt5.QtWidgets import QMessageBox
-                    QMessageBox.warning(self, 'Error', f'Invalid JSON: {e}')
-                    return
+                    json_data = json.loads(raw_text)
+                except Exception:
+                    json_data = None
             else:
                 data = raw_text
-        # 发送请求
         try:
             start = time.time()
-            resp = requests.request(method, url, params=params if params else None, headers=headers if headers else None, data=data, json=json_data)
+            resp = requests.request(method, url, params=params, headers=headers, data=data, json=json_data, files=files)
             elapsed = int((time.time() - start) * 1000)
         except Exception as e:
-            self.resp_body_edit.setText(f'Request failed:\n{str(e)}')
+            status = f'Error: {e}'
+            body = ''
+            headers_str = ''
+            self.resp_status_label.setText(status)
+            self.resp_body_edit.setPlainText(body)
+            self.resp_tabs.setCurrentIndex(0)
+            # 保存到editor
+            editor.resp_status = status
+            editor.resp_body = body
+            editor.resp_headers = headers_str
             return
-        # 展示响应
-        size_kb = len(resp.content) / 1024
-        size_str = f'{size_kb:.2f} KB'
-        self.resp_status_label.setText(f'{resp.status_code} {resp.reason} | {elapsed} ms | {size_str}')
-        # 响应体
-        content_type = resp.headers.get('Content-Type', '')
-        body = resp.text
-        if 'application/json' in content_type:
-            try:
-                body = json.dumps(resp.json(), ensure_ascii=False, indent=2)
-            except Exception:
-                body = resp.text
+        # 响应区展示
+        status = f'{resp.status_code} {resp.reason}   {elapsed}ms   {len(resp.content)/1024:.2f}KB'
+        try:
+            body = resp.text
+            if 'application/json' in resp.headers.get('Content-Type', ''):
+                obj = resp.json()
+                body = json.dumps(obj, ensure_ascii=False, indent=2)
+        except Exception:
+            body = resp.text
+        headers_str = '\n'.join(f'{k}: {v}' for k, v in resp.headers.items())
+        self.resp_status_label.setText(status)
         self.resp_body_edit.setPlainText(body)
-        # 响应头
-        headers_str = '\n'.join([f'{k}: {v}' for k, v in resp.headers.items()])
         self.resp_tabs.widget(1).setPlainText(headers_str)
+        self.resp_tabs.setCurrentIndex(0)
+        # 保存到editor
+        editor.resp_status = status
+        editor.resp_body = body
+        editor.resp_headers = headers_str
 
     def save_response_to_file(self):
         from PyQt5.QtWidgets import QFileDialog, QMessageBox
@@ -768,6 +634,38 @@ class MainWindow(QWidget):
             event.ignore()
             return
 
+    def on_collection_item_double_clicked(self, item, column):
+        # 判断是否为Request节点
+        if item.childCount() == 0 and item.parent() is not None and item.icon(0).cacheKey() == self.file_icon.cacheKey():
+            # 查找请求Tab中是否有同名Tab，有则切换，没有则新建
+            name = item.text(0)
+            for i in range(self.req_tabs.count()):
+                if self.req_tabs.tabText(i) == name:
+                    self.req_tabs.setCurrentIndex(i)
+                    return
+            req_editor = RequestEditor(self, req_name=name)
+            self.req_tabs.addTab(req_editor, name)
+            self.req_tabs.setCurrentWidget(req_editor)
+
+    def on_req_tab_changed(self, idx):
+        editor = self.req_tabs.widget(idx)
+        if hasattr(editor, 'resp_status'):
+            self.resp_status_label.setText(editor.resp_status)
+            self.resp_body_edit.setPlainText(editor.resp_body)
+            self.resp_tabs.widget(1).setPlainText(editor.resp_headers)
+        else:
+            self.resp_status_label.setText('')
+            self.resp_body_edit.setPlainText('')
+            self.resp_tabs.widget(1).setPlainText('')
+
+    def on_req_tab_closed(self, idx):
+        self.req_tabs.removeTab(idx)
+        # 如果没有Tab或当前Tab不是RequestEditor，清空响应区
+        if self.req_tabs.count() == 0 or not hasattr(self.req_tabs.currentWidget(), 'resp_status'):
+            self.resp_status_label.setText('')
+            self.resp_body_edit.setPlainText('')
+            self.resp_tabs.widget(1).setPlainText('')
+
 class JsonHighlighter(QSyntaxHighlighter):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -959,3 +857,329 @@ class CodeEditor(QPlainTextEdit):
     def paintEvent(self, event):
         super().paintEvent(event)
         self.lineNumberArea.update() 
+
+# 在MainWindow类外部添加RequestEditor类
+class RequestEditor(QWidget):
+    def __init__(self, parent=None, req_name=None):
+        super().__init__(parent)
+        from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QFrame, QComboBox, QLineEdit, QPushButton, QTabWidget, QWidget, QLabel, QStackedWidget, QRadioButton, QButtonGroup, QTableWidget
+        from PyQt5.QtCore import Qt
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
+        # 请求行
+        req_line = QFrame()
+        req_line.setObjectName('RequestLine')
+        req_line_layout = QHBoxLayout(req_line)
+        req_line_layout.setContentsMargins(16, 16, 16, 0)
+        req_line_layout.setSpacing(8)
+        self.method_combo = QComboBox()
+        self.method_combo.setObjectName('MethodCombo')
+        self.method_combo.addItems(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'])
+        self.url_edit = QLineEdit()
+        self.url_edit.setObjectName('UrlEdit')
+        self.url_edit.setPlaceholderText('Enter request URL...')
+        req_line_layout.addWidget(self.method_combo)
+        req_line_layout.addWidget(self.url_edit)
+        self.send_btn = QPushButton('Send')
+        self.send_btn.setFixedWidth(80)
+        self.send_btn.setStyleSheet('''QPushButton {background-color: #1976d2; color: white; font-weight: bold; border-radius: 6px; padding: 8px 0; font-size: 16px;} QPushButton:pressed {background-color: #115293;}''')
+        req_line_layout.addWidget(self.send_btn)
+        self.layout.addWidget(req_line)
+        # Code/Import/Save按钮
+        code_import_row = QHBoxLayout()
+        code_import_row.setContentsMargins(16, 0, 16, 0)
+        code_import_row.setSpacing(8)
+        code_import_row.addStretch()
+        self.code_btn = QPushButton('Code')
+        self.import_btn = QPushButton('Import')
+        self.save_btn = QPushButton('Save')
+        code_import_row.addWidget(self.code_btn)
+        code_import_row.addWidget(self.import_btn)
+        code_import_row.addWidget(self.save_btn)
+        self.layout.addLayout(code_import_row)
+        # Params表格
+        self.params_table = QTableWidget()
+        self.init_table(self.params_table)
+        params_widget = QWidget()
+        params_layout = QVBoxLayout(params_widget)
+        params_layout.setContentsMargins(0,0,0,0)
+        params_layout.setSpacing(0)
+        params_layout.addWidget(self.params_table)
+        # Headers表格
+        self.headers_table = QTableWidget()
+        self.init_table(self.headers_table)
+        headers_widget = QWidget()
+        headers_layout = QVBoxLayout(headers_widget)
+        headers_layout.setContentsMargins(0,0,0,0)
+        headers_layout.setSpacing(0)
+        headers_layout.addWidget(self.headers_table)
+        # form-data表格
+        self.form_table = QTableWidget()
+        self.init_table(self.form_table)
+        form_widget = QWidget()
+        form_layout = QVBoxLayout(form_widget)
+        form_layout.setContentsMargins(0,0,0,0)
+        form_layout.setSpacing(0)
+        form_layout.addWidget(self.form_table)
+        # x-www-form-urlencoded表格
+        self.url_table = QTableWidget()
+        self.init_table(self.url_table)
+        url_widget = QWidget()
+        url_layout = QVBoxLayout(url_widget)
+        url_layout.setContentsMargins(0,0,0,0)
+        url_layout.setSpacing(0)
+        url_layout.addWidget(self.url_table)
+        # Body Tab内容
+        body_tab = QWidget()
+        body_tab_layout = QVBoxLayout(body_tab)
+        body_tab_layout.setContentsMargins(0, 0, 0, 0)
+        body_tab_layout.setSpacing(8)
+        self.body_type_group = QButtonGroup(body_tab)
+        body_type_row = QHBoxLayout()
+        self.body_none_radio = QRadioButton('none')
+        self.body_form_radio = QRadioButton('form-data')
+        self.body_url_radio = QRadioButton('x-www-form-urlencoded')
+        self.body_raw_radio = QRadioButton('raw')
+        self.body_type_group.addButton(self.body_none_radio)
+        self.body_type_group.addButton(self.body_form_radio)
+        self.body_type_group.addButton(self.body_url_radio)
+        self.body_type_group.addButton(self.body_raw_radio)
+        body_type_row.addWidget(self.body_none_radio)
+        body_type_row.addWidget(self.body_form_radio)
+        body_type_row.addWidget(self.body_url_radio)
+        body_type_row.addWidget(self.body_raw_radio)
+        body_type_row.addStretch()
+        body_tab_layout.addLayout(body_type_row)
+        self.body_stack = QStackedWidget()
+        self.body_none_label = QLabel('This request does not have a body')
+        self.body_none_label.setAlignment(Qt.AlignCenter)
+        self.body_stack.addWidget(self.body_none_label)
+        self.body_stack.addWidget(form_widget)
+        self.body_stack.addWidget(url_widget)
+        # raw内容
+        raw_widget = QWidget()
+        raw_main_layout = QVBoxLayout(raw_widget)
+        raw_main_layout.setContentsMargins(0, 0, 0, 0)
+        raw_main_layout.setSpacing(4)
+        raw_top_layout = QHBoxLayout()
+        raw_top_layout.setContentsMargins(0, 0, 0, 0)
+        raw_top_layout.setSpacing(8)
+        self.raw_type_combo = QComboBox()
+        self.raw_type_combo.addItems(['JSON', 'TEXT'])
+        raw_top_layout.addWidget(self.raw_type_combo)
+        self.beautify_btn = QPushButton('Beautify')
+        self.beautify_btn.setToolTip('格式化/美化 JSON (快捷键 Ctrl+B)')
+        raw_top_layout.addWidget(self.beautify_btn)
+        raw_top_layout.addStretch()
+        raw_main_layout.addLayout(raw_top_layout)
+        self.raw_text_edit = CodeEditor()
+        self.raw_text_edit.set_mainwindow(self)
+        raw_main_layout.addWidget(self.raw_text_edit)
+        raw_widget.setLayout(raw_main_layout)
+        self.body_stack.addWidget(raw_widget)
+        self.json_highlighter = JsonHighlighter(self.raw_text_edit.document())
+        self.raw_type_combo.currentTextChanged.connect(self.on_raw_type_changed)
+        self.body_none_radio.toggled.connect(lambda checked: checked and self.body_stack.setCurrentIndex(0))
+        self.body_form_radio.toggled.connect(lambda checked: checked and self.body_stack.setCurrentIndex(1))
+        self.body_url_radio.toggled.connect(lambda checked: checked and self.body_stack.setCurrentIndex(2))
+        self.body_raw_radio.toggled.connect(lambda checked: checked and self.body_stack.setCurrentIndex(3))
+        self.beautify_btn.clicked.connect(self.beautify_json)
+        body_tab_layout.addWidget(self.body_stack)
+        self.req_tab = QTabWidget()
+        self.req_tab.setObjectName('ReqTab')
+        self.req_tab.addTab(params_widget, 'Params')
+        self.req_tab.addTab(headers_widget, 'Headers')
+        self.req_tab.addTab(body_tab, 'Body')
+        self.layout.addWidget(self.req_tab)
+        if req_name:
+            self.url_edit.setText(f'https://api.example.com/{req_name}')
+        self.send_btn.clicked.connect(self.on_send_clicked)
+        self.save_btn.clicked.connect(self.on_save_clicked)
+        self.import_btn.clicked.connect(self.on_import_clicked)
+        # 添加响应内容属性
+        self.resp_status = ''
+        self.resp_body = ''
+        self.resp_headers = ''
+    def init_table(self, table):
+        table.setColumnCount(5)
+        table.setHorizontalHeaderLabels(['', 'Key', 'Value', 'Description', 'Operation'])
+        from PyQt5.QtWidgets import QHeaderView, QTableWidgetItem, QCheckBox, QPushButton, QWidget, QHBoxLayout
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        table.setRowCount(1)
+        self.add_table_row(table, 0)
+        table.cellChanged.connect(lambda row, col, t=table: self.on_table_edit(t, row, col))
+    def add_table_row(self, table, row):
+        table.setItem(row, 1, QTableWidgetItem(''))
+        table.setItem(row, 2, QTableWidgetItem(''))
+        table.setItem(row, 3, QTableWidgetItem(''))
+        table.setItem(row, 4, QTableWidgetItem(''))
+        cb = QCheckBox()
+        cb.setChecked(True)
+        table.setCellWidget(row, 0, cb)
+        btn = QPushButton('删除')
+        btn.setFixedWidth(48)
+        def remove():
+            if table.rowCount() > 1:
+                table.removeRow(row)
+        btn.clicked.connect(remove)
+        w = QWidget()
+        layout = QHBoxLayout(w)
+        layout.setContentsMargins(0,0,0,0)
+        layout.addStretch()
+        layout.addWidget(btn)
+        table.setCellWidget(row, 4, w)
+    def on_table_edit(self, table, row, col):
+        last_row = table.rowCount() - 1
+        if any(table.item(last_row, c) and table.item(last_row, c).text().strip() for c in [1,2,3]):
+            table.insertRow(table.rowCount())
+            self.add_table_row(table, table.rowCount()-1)
+    def beautify_json(self):
+        if self.raw_type_combo.currentText() == 'JSON':
+            text = self.raw_text_edit.toPlainText()
+            if not text.strip():
+                from PyQt5.QtWidgets import QMessageBox
+                QMessageBox.warning(self, 'Beautify Error', '请输入JSON内容后再美化！')
+                return
+            try:
+                import json
+                obj = json.loads(text)
+                pretty = json.dumps(obj, ensure_ascii=False, indent=2)
+                self.raw_text_edit.setPlainText(pretty)
+            except Exception as e:
+                from PyQt5.QtWidgets import QMessageBox
+                QMessageBox.warning(self, 'Beautify Error', f'Invalid JSON: {e}')
+    def on_raw_type_changed(self, text):
+        if text == 'JSON':
+            self.json_highlighter.setDocument(self.raw_text_edit.document())
+        else:
+            self.json_highlighter.setDocument(None)
+    def on_send_clicked(self):
+        print('[DEBUG] RequestEditor.on_send_clicked called')
+        mainwin = self.window()
+        if hasattr(mainwin, 'send_request'):
+            print('[DEBUG] Calling mainwin.send_request(self)')
+            mainwin.send_request(self)
+        else:
+            print('[DEBUG] mainwin has no send_request')
+    def on_save_clicked(self):
+        from PyQt5.QtWidgets import QFileDialog, QMessageBox
+        import json
+        # 收集请求数据
+        req_data = {
+            'name': self.url_edit.text().strip(),
+            'method': self.method_combo.currentText(),
+            'url': self.url_edit.text().strip(),
+            'params': [],
+            'headers': [],
+            'body_type': None,
+            'body': None
+        }
+        # Params
+        for row in range(self.params_table.rowCount()-1):
+            key_item = self.params_table.item(row, 1)
+            value_item = self.params_table.item(row, 2)
+            if key_item and key_item.text().strip():
+                req_data['params'].append({
+                    'key': key_item.text().strip(),
+                    'value': value_item.text().strip() if value_item else ''
+                })
+        # Headers
+        for row in range(self.headers_table.rowCount()-1):
+            key_item = self.headers_table.item(row, 1)
+            value_item = self.headers_table.item(row, 2)
+            if key_item and key_item.text().strip():
+                req_data['headers'].append({
+                    'key': key_item.text().strip(),
+                    'value': value_item.text().strip() if value_item else ''
+                })
+        # Body
+        if self.body_form_radio.isChecked():
+            req_data['body_type'] = 'form-data'
+            body = []
+            for row in range(self.form_table.rowCount()-1):
+                key_item = self.form_table.item(row, 1)
+                value_item = self.form_table.item(row, 2)
+                if key_item and key_item.text().strip():
+                    body.append({'key': key_item.text().strip(), 'value': value_item.text().strip() if value_item else ''})
+            req_data['body'] = body
+        elif self.body_url_radio.isChecked():
+            req_data['body_type'] = 'x-www-form-urlencoded'
+            body = []
+            for row in range(self.url_table.rowCount()-1):
+                key_item = self.url_table.item(row, 1)
+                value_item = self.url_table.item(row, 2)
+                if key_item and key_item.text().strip():
+                    body.append({'key': key_item.text().strip(), 'value': value_item.text().strip() if value_item else ''})
+            req_data['body'] = body
+        elif self.body_raw_radio.isChecked():
+            req_data['body_type'] = 'raw'
+            req_data['body'] = self.raw_text_edit.toPlainText()
+            req_data['raw_type'] = self.raw_type_combo.currentText()
+        # 保存到文件
+        fname, _ = QFileDialog.getSaveFileName(self, '保存请求', '', 'JSON Files (*.json);;All Files (*)')
+        if fname:
+            try:
+                with open(fname, 'w', encoding='utf-8') as f:
+                    json.dump(req_data, f, ensure_ascii=False, indent=2)
+                QMessageBox.information(self, '保存成功', f'请求已保存到 {fname}')
+            except Exception as e:
+                QMessageBox.warning(self, '保存失败', f'保存请求失败: {e}')
+    def on_import_clicked(self):
+        from PyQt5.QtWidgets import QFileDialog, QMessageBox
+        import json
+        fname, _ = QFileDialog.getOpenFileName(self, '导入请求', '', 'JSON Files (*.json);;All Files (*)')
+        if not fname:
+            return
+        try:
+            with open(fname, 'r', encoding='utf-8') as f:
+                req_data = json.load(f)
+        except Exception as e:
+            QMessageBox.warning(self, '导入失败', f'读取文件失败: {e}')
+            return
+        # 填充请求内容
+        self.method_combo.setCurrentText(req_data.get('method', 'GET'))
+        self.url_edit.setText(req_data.get('url', ''))
+        # Params
+        self.params_table.setRowCount(1)
+        for i, param in enumerate(req_data.get('params', [])):
+            if i >= self.params_table.rowCount()-1:
+                self.params_table.insertRow(self.params_table.rowCount())
+            self.params_table.setItem(i, 1, QTableWidgetItem(param.get('key', '')))
+            self.params_table.setItem(i, 2, QTableWidgetItem(param.get('value', '')))
+        # Headers
+        self.headers_table.setRowCount(1)
+        for i, header in enumerate(req_data.get('headers', [])):
+            if i >= self.headers_table.rowCount()-1:
+                self.headers_table.insertRow(self.headers_table.rowCount())
+            self.headers_table.setItem(i, 1, QTableWidgetItem(header.get('key', '')))
+            self.headers_table.setItem(i, 2, QTableWidgetItem(header.get('value', '')))
+        # Body
+        body_type = req_data.get('body_type', 'none')
+        if body_type == 'form-data':
+            self.body_form_radio.setChecked(True)
+            self.form_table.setRowCount(1)
+            for i, item in enumerate(req_data.get('body', [])):
+                if i >= self.form_table.rowCount()-1:
+                    self.form_table.insertRow(self.form_table.rowCount())
+                self.form_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                self.form_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+        elif body_type == 'x-www-form-urlencoded':
+            self.body_url_radio.setChecked(True)
+            self.url_table.setRowCount(1)
+            for i, item in enumerate(req_data.get('body', [])):
+                if i >= self.url_table.rowCount()-1:
+                    self.url_table.insertRow(self.url_table.rowCount())
+                self.url_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                self.url_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+        elif body_type == 'raw':
+            self.body_raw_radio.setChecked(True)
+            self.raw_text_edit.setPlainText(req_data.get('body', ''))
+            self.raw_type_combo.setCurrentText(req_data.get('raw_type', 'JSON'))
+        else:
+            self.body_none_radio.setChecked(True)
+        QMessageBox.information(self, '导入成功', '请求已导入！') 
