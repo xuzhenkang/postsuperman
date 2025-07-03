@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QListWidget, QTextEdit, QLineEdit, QComboBox, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QTabWidget, QHeaderView, QFrame, QTreeWidget, QTreeWidgetItem, QButtonGroup, QRadioButton, QStackedWidget, QCheckBox, QMenuBar, QMenu, QAction, QFileDialog, QMessageBox, QDialog
+    QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QListWidget, QTextEdit, QLineEdit, QComboBox, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QTabWidget, QHeaderView, QFrame, QTreeWidget, QTreeWidgetItem, QButtonGroup, QRadioButton, QStackedWidget, QCheckBox, QMenuBar, QMenu, QAction, QFileDialog, QMessageBox, QDialog, QInputDialog
 )
 from PyQt5.QtCore import Qt, QRect, QSize
 from PyQt5.QtGui import QClipboard, QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QTextCursor
@@ -89,11 +89,29 @@ class MainWindow(QWidget):
         self.left_tab.setTabPosition(QTabWidget.North)
         self.left_tab.setObjectName('LeftTab')
         # Collections Tab
+        collections_panel = QWidget()
+        collections_layout = QVBoxLayout(collections_panel)
+        collections_layout.setContentsMargins(0, 0, 0, 0)
+        collections_layout.setSpacing(4)
+        btn_row = QHBoxLayout()
+        self.new_collection_btn = QPushButton('New Collection')
+        self.new_collection_btn.setToolTip('新建一个请求集合')
+        btn_row.addWidget(self.new_collection_btn)
+        self.import_collection_btn = QPushButton('Import Collection')
+        self.import_collection_btn.setToolTip('导入请求集合')
+        btn_row.addWidget(self.import_collection_btn)
+        btn_row.addStretch()
+        collections_layout.addLayout(btn_row)
         self.collection_tree = QTreeWidget()
         self.collection_tree.setHeaderHidden(True)
+        self.collection_tree.setDragDropMode(self.collection_tree.InternalMove)
+        self.collection_tree.setDefaultDropAction(Qt.MoveAction)
+        self.collection_tree.setSelectionMode(self.collection_tree.SingleSelection)
+        self.collection_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        collections_layout.addWidget(self.collection_tree)
         root = QTreeWidgetItem(self.collection_tree, ['默认集合'])
         QTreeWidgetItem(root, ['GET 示例请求'])
-        self.left_tab.addTab(self.collection_tree, 'Collections')
+        self.left_tab.addTab(collections_panel, 'Collections')
         # Environments Tab
         self.env_list = QListWidget()
         self.left_tab.addTab(self.env_list, 'Environments')
@@ -295,6 +313,9 @@ class MainWindow(QWidget):
         self.send_btn.clicked.connect(self.send_request)
         self.save_resp_btn.clicked.connect(self.save_response_to_file)
         self.clear_resp_btn.clicked.connect(self.clear_response)
+        self.new_collection_btn.clicked.connect(self.create_collection)
+        self.import_collection_btn.clicked.connect(self.import_collection)
+        self.collection_tree.customContextMenuRequested.connect(self.show_collection_menu)
 
     def init_table(self, table):
         table.setColumnCount(5)
@@ -576,6 +597,53 @@ class MainWindow(QWidget):
             self.json_highlighter.setDocument(self.raw_text_edit.document())
         else:
             self.json_highlighter.setDocument(None)
+
+    def create_collection(self):
+        from PyQt5.QtWidgets import QInputDialog, QMessageBox
+        name, ok = QInputDialog.getText(self, '新建 Collection', '请输入集合名称:')
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+        # 检查重名
+        def is_duplicate(tree, name):
+            for i in range(tree.topLevelItemCount()):
+                if tree.topLevelItem(i).text(0) == name:
+                    return True
+            return False
+        if is_duplicate(self.collection_tree, name):
+            QMessageBox.warning(self, '新建失败', f'已存在名为"{name}"的集合！')
+            return
+        QTreeWidgetItem(self.collection_tree, [name])
+
+    def show_collection_menu(self, pos):
+        from PyQt5.QtWidgets import QMenu, QMessageBox, QInputDialog
+        item = self.collection_tree.itemAt(pos)
+        if not item or item.parent() is not None:
+            return  # 只允许对顶层集合操作
+        menu = QMenu(self)
+        rename_action = menu.addAction('重命名')
+        delete_action = menu.addAction('删除')
+        action = menu.exec_(self.collection_tree.viewport().mapToGlobal(pos))
+        if action == rename_action:
+            name, ok = QInputDialog.getText(self, '重命名集合', '请输入新名称:', text=item.text(0))
+            if not ok or not name.strip():
+                return
+            name = name.strip()
+            # 检查重名
+            for i in range(self.collection_tree.topLevelItemCount()):
+                if self.collection_tree.topLevelItem(i) != item and self.collection_tree.topLevelItem(i).text(0) == name:
+                    QMessageBox.warning(self, '重命名失败', f'已存在名为"{name}"的集合！')
+                    return
+            item.setText(0, name)
+        elif action == delete_action:
+            reply = QMessageBox.question(self, '删除集合', f'确定要删除集合"{item.text(0)}"吗？', QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                idx = self.collection_tree.indexOfTopLevelItem(item)
+                self.collection_tree.takeTopLevelItem(idx)
+
+    def import_collection(self):
+        from PyQt5.QtWidgets import QMessageBox
+        QMessageBox.information(self, 'Import Collection', '导入集合功能待实现。')
 
 class JsonHighlighter(QSyntaxHighlighter):
     def __init__(self, parent=None):
