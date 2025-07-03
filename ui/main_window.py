@@ -1,8 +1,8 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QListWidget, QTextEdit, QLineEdit, QComboBox, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QTabWidget, QHeaderView, QFrame, QTreeWidget, QTreeWidgetItem, QButtonGroup, QRadioButton, QStackedWidget, QCheckBox, QMenuBar, QMenu, QAction, QFileDialog, QMessageBox, QDialog
 )
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QClipboard
+from PyQt5.QtCore import Qt, QRect, QSize
+from PyQt5.QtGui import QClipboard, QSyntaxHighlighter, QTextCharFormat, QColor, QFont
 from PyQt5.QtWidgets import QApplication
 import json
 import requests
@@ -151,15 +151,35 @@ class MainWindow(QWidget):
         # Params表格
         self.params_table = QTableWidget()
         self.init_table(self.params_table)
+        params_widget = QWidget()
+        params_layout = QVBoxLayout(params_widget)
+        params_layout.setContentsMargins(0,0,0,0)
+        params_layout.setSpacing(0)
+        params_layout.addWidget(self.params_table)
         # Headers表格
         self.headers_table = QTableWidget()
         self.init_table(self.headers_table)
+        headers_widget = QWidget()
+        headers_layout = QVBoxLayout(headers_widget)
+        headers_layout.setContentsMargins(0,0,0,0)
+        headers_layout.setSpacing(0)
+        headers_layout.addWidget(self.headers_table)
         # form-data表格
         self.form_table = QTableWidget()
         self.init_table(self.form_table)
+        form_widget = QWidget()
+        form_layout = QVBoxLayout(form_widget)
+        form_layout.setContentsMargins(0,0,0,0)
+        form_layout.setSpacing(0)
+        form_layout.addWidget(self.form_table)
         # x-www-form-urlencoded表格
         self.url_table = QTableWidget()
         self.init_table(self.url_table)
+        url_widget = QWidget()
+        url_layout = QVBoxLayout(url_widget)
+        url_layout.setContentsMargins(0,0,0,0)
+        url_layout.setSpacing(0)
+        url_layout.addWidget(self.url_table)
         # 新Body Tab内容
         body_tab = QWidget()
         body_tab_layout = QVBoxLayout(body_tab)
@@ -184,14 +204,11 @@ class MainWindow(QWidget):
         body_tab_layout.addLayout(body_type_row)
         # 内容区Stack
         self.body_stack = QStackedWidget()
-        # none内容
         self.body_none_label = QLabel('This request does not have a body')
         self.body_none_label.setAlignment(Qt.AlignCenter)
         self.body_stack.addWidget(self.body_none_label)
-        # form-data表格（与Params/Headers一致）
-        self.body_stack.addWidget(self.form_table)
-        # x-www-form-urlencoded表格（与Params/Headers一致）
-        self.body_stack.addWidget(self.url_table)
+        self.body_stack.addWidget(form_widget)
+        self.body_stack.addWidget(url_widget)
         # raw内容
         raw_widget = QWidget()
         raw_main_layout = QVBoxLayout(raw_widget)
@@ -207,26 +224,26 @@ class MainWindow(QWidget):
         raw_top_layout.addWidget(self.beautify_btn)
         raw_top_layout.addStretch()
         raw_main_layout.addLayout(raw_top_layout)
-        self.raw_text_edit = QTextEdit()
+        self.raw_text_edit = CodeEditor()
+        self.raw_text_edit.set_mainwindow(self)
         raw_main_layout.addWidget(self.raw_text_edit)
         raw_widget.setLayout(raw_main_layout)
         self.body_stack.addWidget(raw_widget)
-        body_tab_layout.addWidget(self.body_stack)
-        # 默认选中none
-        self.body_none_radio.setChecked(True)
-        self.body_stack.setCurrentIndex(0)
-        # 绑定切换事件
-        self.body_none_radio.toggled.connect(lambda: self.body_stack.setCurrentIndex(0))
-        self.body_form_radio.toggled.connect(lambda: self.body_stack.setCurrentIndex(1))
-        self.body_url_radio.toggled.connect(lambda: self.body_stack.setCurrentIndex(2))
-        self.body_raw_radio.toggled.connect(lambda: self.body_stack.setCurrentIndex(3))
-        # Beautify按钮事件
+        # 高亮器
+        self.json_highlighter = JsonHighlighter(self.raw_text_edit.document())
+        self.raw_type_combo.currentTextChanged.connect(self.on_raw_type_changed)
+        # 绑定切换事件（只在选中时切换）
+        self.body_none_radio.toggled.connect(lambda checked: checked and self.body_stack.setCurrentIndex(0))
+        self.body_form_radio.toggled.connect(lambda checked: checked and self.body_stack.setCurrentIndex(1))
+        self.body_url_radio.toggled.connect(lambda checked: checked and self.body_stack.setCurrentIndex(2))
+        self.body_raw_radio.toggled.connect(lambda checked: checked and self.body_stack.setCurrentIndex(3))
         self.beautify_btn.clicked.connect(self.beautify_json)
+        body_tab_layout.addWidget(self.body_stack)
         # 下方 Params/Headers/Body Tab
         self.req_tab = QTabWidget()
         self.req_tab.setObjectName('ReqTab')
-        self.req_tab.addTab(self.params_table, 'Params')
-        self.req_tab.addTab(self.headers_table, 'Headers')
+        self.req_tab.addTab(params_widget, 'Params')
+        self.req_tab.addTab(headers_widget, 'Headers')
         self.req_tab.addTab(body_tab, 'Body')
         req_tab_layout.addWidget(self.req_tab)
         self.req_tabs.addTab(req_tab, 'GET 示例请求')
@@ -544,4 +561,138 @@ class MainWindow(QWidget):
     def clear_response(self):
         self.resp_status_label.setText('Click Send to get a response')
         self.resp_body_edit.clear()
-        self.resp_tabs.widget(1).setPlainText('') 
+        self.resp_tabs.widget(1).setPlainText('')
+
+    def on_raw_type_changed(self, text):
+        if text == 'json':
+            # 自动美化
+            try:
+                obj = json.loads(self.raw_text_edit.toPlainText())
+                pretty = json.dumps(obj, ensure_ascii=False, indent=2)
+                self.raw_text_edit.setPlainText(pretty)
+            except Exception:
+                pass
+            self.json_highlighter.setDocument(self.raw_text_edit.document())
+        else:
+            self.json_highlighter.setDocument(None)
+
+class JsonHighlighter(QSyntaxHighlighter):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.keyFormat = QTextCharFormat()
+        self.keyFormat.setForeground(QColor('#1976d2'))
+        self.keyFormat.setFontWeight(QFont.Bold)
+        self.strFormat = QTextCharFormat()
+        self.strFormat.setForeground(QColor('#43a047'))
+        self.numFormat = QTextCharFormat()
+        self.numFormat.setForeground(QColor('#e65100'))
+        self.boolFormat = QTextCharFormat()
+        self.boolFormat.setForeground(QColor('#d84315'))
+        self.nullFormat = QTextCharFormat()
+        self.nullFormat.setForeground(QColor('#757575'))
+    def highlightBlock(self, text):
+        import re
+        # key: "key"
+        for m in re.finditer(r'"(.*?)"(?=\s*:)', text):
+            self.setFormat(m.start(), m.end()-m.start(), self.keyFormat)
+        # string value: : "value"
+        for m in re.finditer(r':\s*"(.*?)"', text):
+            self.setFormat(m.start(0)+1, len(m.group(0))-1, self.strFormat)
+        # number value
+        for m in re.finditer(r':\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)', text):
+            self.setFormat(m.start(1), len(m.group(1)), self.numFormat)
+        # bool value
+        for m in re.finditer(r':\s*(true|false)', text):
+            self.setFormat(m.start(1), len(m.group(1)), self.boolFormat)
+        # null value
+        for m in re.finditer(r':\s*(null)', text):
+            self.setFormat(m.start(1), len(m.group(1)), self.nullFormat)
+
+# 行号区域控件
+from PyQt5.QtWidgets import QWidget, QPlainTextEdit
+class LineNumberArea(QWidget):
+    def __init__(self, editor):
+        super().__init__(editor)
+        self.codeEditor = editor
+    def sizeHint(self):
+        return QSize(self.codeEditor.lineNumberAreaWidth(), 0)
+    def paintEvent(self, event):
+        self.codeEditor.lineNumberAreaPaintEvent(event)
+
+class CodeEditor(QPlainTextEdit):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.lineNumberArea = LineNumberArea(self)
+        self.blockCountChanged.connect(self.updateLineNumberAreaWidth)
+        self.cursorPositionChanged.connect(self.updateLineNumberArea)
+        self.updateLineNumberAreaWidth(0)
+        self.parent_mainwindow = None  # 用于判断是否为json模式
+    def set_mainwindow(self, mw):
+        self.parent_mainwindow = mw
+    def keyPressEvent(self, event):
+        if self.parent_mainwindow and hasattr(self.parent_mainwindow, 'raw_type_combo'):
+            if self.parent_mainwindow.raw_type_combo.currentText() == 'json' and event.key() == Qt.Key_Return:
+                cursor = self.textCursor()
+                cursor.insertText('\n')
+                # 获取上一行的缩进
+                block = cursor.block().previous()
+                text = block.text()
+                indent = ''
+                for c in text:
+                    if c == ' ':
+                        indent += ' '
+                    elif c == '\t':
+                        indent += '\t'
+                    else:
+                        break
+                # 如果上一行以{ [ ( :结尾，自动多缩进一级
+                if text.rstrip().endswith(('{', '[', '(', ':')):
+                    indent += '    '
+                cursor.insertText(indent)
+                self.setTextCursor(cursor)
+                return
+        super().keyPressEvent(event)
+    def lineNumberAreaWidth(self):
+        digits = len(str(max(1, self.blockCount())))
+        return 10 + self.fontMetrics().width('9') * digits
+    def updateLineNumberAreaWidth(self, _):
+        self.setViewportMargins(self.lineNumberAreaWidth(), 0, 0, 0)
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        cr = self.contentsRect()
+        self.lineNumberArea.setGeometry(QRect(cr.left(), cr.top(), self.lineNumberAreaWidth(), cr.height()))
+    def updateLineNumberArea(self):
+        rect = self.viewport().rect()
+        dy = 0
+        self.lineNumberArea.update(0, rect.y(), self.lineNumberArea.width(), rect.height())
+    def updateLineNumberAreaEvent(self, rect, dy):
+        if dy:
+            self.lineNumberArea.scroll(0, dy)
+        else:
+            self.lineNumberArea.update(0, rect.y(), self.lineNumberArea.width(), rect.height())
+        if rect.contains(self.viewport().rect()):
+            self.updateLineNumberAreaWidth(0)
+    def lineNumberAreaPaintEvent(self, event):
+        from PyQt5.QtGui import QPainter
+        painter = QPainter(self.lineNumberArea)
+        painter.fillRect(event.rect(), Qt.lightGray)
+        block = self.firstVisibleBlock()
+        blockNumber = block.blockNumber()
+        top = int(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
+        bottom = top + int(self.blockBoundingRect(block).height())
+        while block.isValid() and top <= event.rect().bottom():
+            if block.isVisible() and bottom >= event.rect().top():
+                number = str(blockNumber + 1)
+                painter.setPen(Qt.gray)
+                painter.drawText(0, top, self.lineNumberArea.width()-2, self.fontMetrics().height(), Qt.AlignRight, number)
+            block = block.next()
+            top = bottom
+            bottom = top + int(self.blockBoundingRect(block).height())
+            blockNumber += 1
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        cr = self.contentsRect()
+        self.lineNumberArea.setGeometry(QRect(cr.left(), cr.top(), self.lineNumberAreaWidth(), cr.height()))
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        self.lineNumberArea.update() 
