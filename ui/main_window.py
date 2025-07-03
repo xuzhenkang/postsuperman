@@ -2,8 +2,8 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QListWidget, QTextEdit, QLineEdit, QComboBox, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QTabWidget, QHeaderView, QFrame, QTreeWidget, QTreeWidgetItem, QButtonGroup, QRadioButton, QStackedWidget, QCheckBox, QMenuBar, QMenu, QAction, QFileDialog, QMessageBox, QDialog, QInputDialog
 )
 from PyQt5.QtCore import Qt, QRect, QSize
-from PyQt5.QtGui import QClipboard, QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QTextCursor
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtGui import QClipboard, QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QTextCursor, QIcon
+from PyQt5.QtWidgets import QApplication, QStyle
 import json
 import requests
 import time
@@ -88,6 +88,11 @@ class MainWindow(QWidget):
         self.left_tab = QTabWidget()
         self.left_tab.setTabPosition(QTabWidget.North)
         self.left_tab.setObjectName('LeftTab')
+        # 图标
+        folder_icon = QApplication.style().standardIcon(QStyle.SP_DirClosedIcon)
+        file_icon = QApplication.style().standardIcon(QStyle.SP_FileIcon)
+        self.folder_icon = folder_icon
+        self.file_icon = file_icon
         # Collections Tab
         collections_panel = QWidget()
         collections_layout = QVBoxLayout(collections_panel)
@@ -108,9 +113,12 @@ class MainWindow(QWidget):
         self.collection_tree.setDefaultDropAction(Qt.MoveAction)
         self.collection_tree.setSelectionMode(self.collection_tree.SingleSelection)
         self.collection_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.collection_tree.dropEvent = self.collection_drop_event_only_top_level
         collections_layout.addWidget(self.collection_tree)
         root = QTreeWidgetItem(self.collection_tree, ['默认集合'])
-        QTreeWidgetItem(root, ['GET 示例请求'])
+        root.setIcon(0, self.folder_icon)
+        demo_req = QTreeWidgetItem(root, ['GET 示例请求'])
+        demo_req.setIcon(0, self.file_icon)
         self.left_tab.addTab(collections_panel, 'Collections')
         # Environments Tab
         self.env_list = QListWidget()
@@ -604,7 +612,6 @@ class MainWindow(QWidget):
         if not ok or not name.strip():
             return
         name = name.strip()
-        # 检查重名
         def is_duplicate(tree, name):
             for i in range(tree.topLevelItemCount()):
                 if tree.topLevelItem(i).text(0) == name:
@@ -613,37 +620,153 @@ class MainWindow(QWidget):
         if is_duplicate(self.collection_tree, name):
             QMessageBox.warning(self, '新建失败', f'已存在名为"{name}"的集合！')
             return
-        QTreeWidgetItem(self.collection_tree, [name])
+        item = QTreeWidgetItem(self.collection_tree, [name])
+        item.setIcon(0, self.folder_icon)
+        QTreeWidgetItem(item, ['GET 示例请求'])
+        self.left_tab.addTab(collections_panel, 'Collections')
 
     def show_collection_menu(self, pos):
         from PyQt5.QtWidgets import QMenu, QMessageBox, QInputDialog
         item = self.collection_tree.itemAt(pos)
-        if not item or item.parent() is not None:
-            return  # 只允许对顶层集合操作
+        if not item:
+            return  # 空白处不弹菜单
         menu = QMenu(self)
-        rename_action = menu.addAction('重命名')
-        delete_action = menu.addAction('删除')
+        # 判断节点类型
+        def is_request(item):
+            return (
+                item is not None and
+                item.childCount() == 0 and
+                item.parent() is not None and
+                item.icon(0).cacheKey() == self.file_icon.cacheKey()
+            )
+        def is_collection(item):
+            return item is not None and not is_request(item)
+        # 菜单生成
+        if is_collection(item):
+            new_collection_action = menu.addAction('New Collection')
+            new_req_action = menu.addAction('新建 Request')
+            menu.addSeparator()
+            rename_action = menu.addAction('重命名')
+            delete_action = menu.addAction('删除')
+        elif is_request(item):
+            new_collection_action = None
+            rename_action = menu.addAction('重命名')
+            delete_action = menu.addAction('删除')
+        else:
+            new_collection_action = None
+            rename_action = None
+            delete_action = None
         action = menu.exec_(self.collection_tree.viewport().mapToGlobal(pos))
-        if action == rename_action:
-            name, ok = QInputDialog.getText(self, '重命名集合', '请输入新名称:', text=item.text(0))
+        if new_collection_action and action == new_collection_action:
+            name, ok = QInputDialog.getText(self, 'New Collection', '请输入集合名称:')
             if not ok or not name.strip():
                 return
             name = name.strip()
-            # 检查重名
-            for i in range(self.collection_tree.topLevelItemCount()):
-                if self.collection_tree.topLevelItem(i) != item and self.collection_tree.topLevelItem(i).text(0) == name:
-                    QMessageBox.warning(self, '重命名失败', f'已存在名为"{name}"的集合！')
+            # 检查重名（只在该节点下）
+            for i in range(item.childCount()):
+                sibling = item.child(i)
+                if sibling and sibling.text(0) == name:
+                    QMessageBox.warning(self, '新建失败', f'该集合下已存在名为"{name}"的集合！')
                     return
+            new_item = QTreeWidgetItem(item, [name])
+            new_item.setIcon(0, self.folder_icon)
+            item.setExpanded(True)
+            return
+        elif 'new_req_action' in locals() and new_req_action and action == new_req_action:
+            name, ok = QInputDialog.getText(self, '新建 Request', '请输入请求名称:')
+            if not ok or not name.strip():
+                return
+            name = name.strip()
+            # 检查重名（只在该集合下）
+            for i in range(item.childCount()):
+                sibling = item.child(i)
+                if sibling and sibling.text(0) == name:
+                    QMessageBox.warning(self, '新建失败', f'该集合下已存在名为"{name}"的请求！')
+                    return
+            new_item = QTreeWidgetItem(item, [name])
+            new_item.setIcon(0, self.file_icon)
+            item.setExpanded(True)
+            return
+        elif rename_action and action == rename_action:
+            name, ok = QInputDialog.getText(self, '重命名', '请输入新名称:', text=item.text(0))
+            if not ok or not name.strip():
+                return
+            name = name.strip()
+            if item.parent() is None:
+                for i in range(self.collection_tree.topLevelItemCount()):
+                    if self.collection_tree.topLevelItem(i) != item and self.collection_tree.topLevelItem(i).text(0) == name:
+                        QMessageBox.warning(self, '重命名失败', f'已存在名为"{name}"的集合！')
+                        return
+            else:
+                parent = item.parent()
+                for i in range(parent.childCount()):
+                    if parent.child(i) != item and parent.child(i).text(0) == name:
+                        QMessageBox.warning(self, '重命名失败', f'该集合下已存在名为"{name}"的请求！')
+                        return
             item.setText(0, name)
-        elif action == delete_action:
-            reply = QMessageBox.question(self, '删除集合', f'确定要删除集合"{item.text(0)}"吗？', QMessageBox.Yes | QMessageBox.No)
-            if reply == QMessageBox.Yes:
-                idx = self.collection_tree.indexOfTopLevelItem(item)
-                self.collection_tree.takeTopLevelItem(idx)
+            # 重命名后保持图标
+            if item.parent() is None:
+                item.setIcon(0, self.folder_icon)
+            else:
+                item.setIcon(0, self.file_icon)
+        elif delete_action and action == delete_action:
+            if item.parent() is None:
+                reply = QMessageBox.question(self, '删除集合', f'确定要删除集合"{item.text(0)}"吗？', QMessageBox.Yes | QMessageBox.No)
+                if reply == QMessageBox.Yes:
+                    idx = self.collection_tree.indexOfTopLevelItem(item)
+                    self.collection_tree.takeTopLevelItem(idx)
+            else:
+                reply = QMessageBox.question(self, '删除请求', f'确定要删除请求"{item.text(0)}"吗？', QMessageBox.Yes | QMessageBox.No)
+                if reply == QMessageBox.Yes:
+                    parent = item.parent()
+                    parent.removeChild(item)
 
     def import_collection(self):
         from PyQt5.QtWidgets import QMessageBox
         QMessageBox.information(self, 'Import Collection', '导入集合功能待实现。')
+
+    def collection_drop_event_only_top_level(self, event):
+        # Collection节点可无限层级，Request只能是Collection的子节点，Request/Collection同级可排序，Request不能变成顶层或Request的子节点
+        from PyQt5.QtWidgets import QTreeWidgetItem, QTreeWidget
+        source = self.collection_tree.currentItem()
+        target_pos = event.pos()
+        target_item = self.collection_tree.itemAt(target_pos)
+        if source is None:
+            event.ignore()
+            return
+        # 判断节点类型
+        def is_request(item):
+            return (
+                item is not None and
+                item.childCount() == 0 and
+                item.parent() is not None and
+                item.icon(0).cacheKey() == self.file_icon.cacheKey()
+            )
+        def is_collection(item):
+            return item is not None and not is_request(item)
+        # 拖拽Collection节点
+        if is_collection(source):
+            # 拖到根部或Collection节点下，允许
+            if target_item is None or is_collection(target_item):
+                QTreeWidget.dropEvent(self.collection_tree, event)
+                return
+            # 拖到Request节点下，禁止
+            if is_request(target_item):
+                event.ignore()
+                return
+        # 拖拽Request节点
+        if is_request(source):
+            # 只能在同一Collection下排序
+            if target_item is not None and target_item.parent() == source.parent() and is_request(target_item):
+                QTreeWidget.dropEvent(self.collection_tree, event)
+                return
+            # 拖到Collection节点，允许作为其子节点（即跨Collection移动）
+            if is_collection(target_item):
+                QTreeWidget.dropEvent(self.collection_tree, event)
+                return
+            # 拖到根部或Request节点下，禁止
+            event.ignore()
+            return
 
 class JsonHighlighter(QSyntaxHighlighter):
     def __init__(self, parent=None):
