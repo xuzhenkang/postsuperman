@@ -18,6 +18,7 @@ class MainWindow(QWidget):
         self.resize(1440, 900)
         self._req_thread = None
         self._req_worker = None
+        self._current_editor = None
         self.init_ui()
 
     def init_ui(self):
@@ -348,6 +349,8 @@ class MainWindow(QWidget):
         dlg.exec_()
 
     def send_request(self, editor=None):
+        if hasattr(editor, 'send_btn'):
+            editor.send_btn.setEnabled(False)
         if self._req_thread and self._req_thread.isRunning():
             return  # 已有请求在进行中
         if editor is None:
@@ -426,6 +429,7 @@ class MainWindow(QWidget):
         self._req_thread.finished.connect(self._req_worker.deleteLater)
         self._req_thread.finished.connect(self._req_thread.deleteLater)
         self._req_thread.start()
+        self._current_editor = editor
 
     def on_request_finished(self, result, editor):
         overlay = self.resp_loading_overlay
@@ -459,6 +463,9 @@ class MainWindow(QWidget):
         editor.resp_status = status
         editor.resp_body = body
         editor.resp_headers = headers_str
+        if hasattr(self, '_current_editor') and hasattr(self._current_editor, 'send_btn'):
+            self._current_editor.send_btn.setEnabled(True)
+        self._current_editor = None
 
     def on_request_error(self, msg, editor):
         overlay = self.resp_loading_overlay
@@ -478,6 +485,9 @@ class MainWindow(QWidget):
         editor.resp_status = status
         editor.resp_body = body
         editor.resp_headers = headers_str
+        if hasattr(self, '_current_editor') and hasattr(self._current_editor, 'send_btn'):
+            self._current_editor.send_btn.setEnabled(True)
+        self._current_editor = None
 
     def on_request_stopped(self):
         overlay = self.resp_loading_overlay
@@ -487,6 +497,9 @@ class MainWindow(QWidget):
             self._req_thread.wait()
         self._req_thread = None
         self._req_worker = None
+        if hasattr(self, '_current_editor') and hasattr(self._current_editor, 'send_btn'):
+            self._current_editor.send_btn.setEnabled(True)
+        self._current_editor = None
 
     def save_response_to_file(self):
         from PyQt5.QtWidgets import QFileDialog, QMessageBox
