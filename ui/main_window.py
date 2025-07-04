@@ -345,11 +345,16 @@ class MainWindow(QWidget):
         dlg.exec_()
 
     def send_request(self, editor=None):
+        if getattr(self, '_sending_request', False):
+            return
+        self._sending_request = True
         if hasattr(editor, 'send_btn'):
             editor.send_btn.setEnabled(False)
         if self._req_thread and self._req_thread.isRunning():
+            self._sending_request = False
             return  # 已有请求在进行中
         if editor is None:
+            self._sending_request = False
             return
         method = editor.method_combo.currentText()
         url = editor.url_edit.text().strip()
@@ -463,6 +468,7 @@ class MainWindow(QWidget):
         if hasattr(self, '_current_editor') and hasattr(self._current_editor, 'send_btn'):
             self._current_editor.send_btn.setEnabled(True)
         self._current_editor = None
+        self._sending_request = False
 
     def on_request_error(self, msg, editor):
         overlay = self.resp_loading_overlay
@@ -485,6 +491,7 @@ class MainWindow(QWidget):
         if hasattr(self, '_current_editor') and hasattr(self._current_editor, 'send_btn'):
             self._current_editor.send_btn.setEnabled(True)
         self._current_editor = None
+        self._sending_request = False
 
     def on_request_stopped(self):
         overlay = self.resp_loading_overlay
@@ -497,6 +504,7 @@ class MainWindow(QWidget):
         if hasattr(self, '_current_editor') and hasattr(self._current_editor, 'send_btn'):
             self._current_editor.send_btn.setEnabled(True)
         self._current_editor = None
+        self._sending_request = False
 
     def save_response_to_file(self):
         from PyQt5.QtWidgets import QFileDialog, QMessageBox
@@ -1353,15 +1361,49 @@ class RequestEditor(QWidget):
             mainwin.send_request(self)
     def on_save_clicked(self):
         from PyQt5.QtWidgets import QFileDialog, QMessageBox
-        text = self.resp_body_edit.toPlainText()
-        if not text.strip():
-            QMessageBox.warning(self, 'No Response', '响应体为空，无法保存！')
-            return
-        fname, _ = QFileDialog.getSaveFileName(self, 'Save Response', '', 'Text Files (*.txt);;All Files (*)')
+        # 收集请求内容
+        req_data = {
+            'method': self.method_combo.currentText(),
+            'url': self.url_edit.text().strip(),
+            'params': [
+                {'key': self.params_table.item(row, 1).text() if self.params_table.item(row, 1) else '',
+                 'value': self.params_table.item(row, 2).text() if self.params_table.item(row, 2) else ''}
+                for row in range(self.params_table.rowCount()-1)
+            ],
+            'headers': [
+                {'key': self.headers_table.item(row, 1).text() if self.headers_table.item(row, 1) else '',
+                 'value': self.headers_table.item(row, 2).text() if self.headers_table.item(row, 2) else ''}
+                for row in range(self.headers_table.rowCount()-1)
+            ],
+        }
+        # Body
+        if self.body_form_radio.isChecked():
+            req_data['body_type'] = 'form-data'
+            req_data['body'] = [
+                {'key': self.form_table.item(row, 1).text() if self.form_table.item(row, 1) else '',
+                 'value': self.form_table.item(row, 2).text() if self.form_table.item(row, 2) else ''}
+                for row in range(self.form_table.rowCount()-1)
+            ]
+        elif self.body_url_radio.isChecked():
+            req_data['body_type'] = 'x-www-form-urlencoded'
+            req_data['body'] = [
+                {'key': self.url_table.item(row, 1).text() if self.url_table.item(row, 1) else '',
+                 'value': self.url_table.item(row, 2).text() if self.url_table.item(row, 2) else ''}
+                for row in range(self.url_table.rowCount()-1)
+            ]
+        elif self.body_raw_radio.isChecked():
+            req_data['body_type'] = 'raw'
+            req_data['body'] = self.raw_text_edit.toPlainText()
+            req_data['raw_type'] = self.raw_type_combo.currentText()
+        else:
+            req_data['body_type'] = 'none'
+            req_data['body'] = ''
+        fname, _ = QFileDialog.getSaveFileName(self, 'Save Request', '', 'JSON Files (*.json);;All Files (*)')
         if fname:
             try:
+                import json
                 with open(fname, 'w', encoding='utf-8') as f:
-                    f.write(text)
+                    json.dump(req_data, f, ensure_ascii=False, indent=2)
             except Exception as e:
                 QMessageBox.warning(self, 'Save Failed', f'保存失败: {e}')
     def on_import_clicked(self):
@@ -1506,27 +1548,17 @@ class RequestWorker(QObject):
         import requests, time
         resp = None
         exc = None
-        chunk_timeout = 0.5
-        start = time.time()
-        elapsed = 0
-        while not self._should_stop:
-            try:
-                resp = requests.request(self.method, self.url, params=self.params, headers=self.headers, data=self.data, json=self.json_data, files=self.files, timeout=chunk_timeout)
-                break
-            except requests.exceptions.Timeout:
-                elapsed = time.time() - start
-                if self._should_stop:
-                    break
-                continue
-            except Exception as e:
-                exc = e
-                break
-        elapsed = int((time.time() - start) * 1000)
-        if self._should_stop:
-            self.stopped.emit()
-            return
-        if exc:
-            self.error.emit(str(exc))
-            return
-        # 只传递原始响应和耗时，主线程处理UI
-        self.finished.emit({'resp': resp, 'elapsed': elapsed}) 
+        try:
+            start = time.time()
+            resp = requests.request(
+                self.method, self.url, params=self.params, headers=self.headers,
+                data=self.data, json=self.json_data, files=self.files,
+                timeout=30  # 可根据需要调整
+            )
+            elapsed = int((time.time() - start) * 1000)
+            if self._should_stop:
+                self.stopped.emit()
+                return
+            self.finished.emit({'resp': resp, 'elapsed': elapsed})
+        except Exception as e:
+            self.error.emit(str(e)) 
