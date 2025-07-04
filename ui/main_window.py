@@ -525,8 +525,10 @@ class MainWindow(QWidget):
             except Exception:
                 pass
             self.json_highlighter.setDocument(self.raw_text_edit.document())
+            self.beautify_btn.setVisible(True)
         else:
             self.json_highlighter.setDocument(None)
+            self.beautify_btn.setVisible(False)
 
     def create_collection(self):
         from PyQt5.QtWidgets import QInputDialog, QMessageBox
@@ -1125,9 +1127,18 @@ class RequestEditor(QWidget):
                 QMessageBox.warning(self, 'Beautify Error', f'Invalid JSON: {e}')
     def on_raw_type_changed(self, text):
         if text == 'JSON':
+            # 自动美化
+            try:
+                obj = json.loads(self.raw_text_edit.toPlainText())
+                pretty = json.dumps(obj, ensure_ascii=False, indent=2)
+                self.raw_text_edit.setPlainText(pretty)
+            except Exception:
+                pass
             self.json_highlighter.setDocument(self.raw_text_edit.document())
+            self.beautify_btn.setVisible(True)
         else:
             self.json_highlighter.setDocument(None)
+            self.beautify_btn.setVisible(False)
     def on_send_clicked(self):
         print('[DEBUG] RequestEditor.on_send_clicked called')
         mainwin = self.window()
