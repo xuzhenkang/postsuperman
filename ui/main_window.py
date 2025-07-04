@@ -184,6 +184,8 @@ class MainWindow(QWidget):
         self.collection_tree.itemDoubleClicked.connect(self.on_collection_item_double_clicked)
         self.req_tabs.currentChanged.connect(self.on_req_tab_changed)
         self.req_tabs.tabCloseRequested.connect(self.on_req_tab_closed)
+        self.save_resp_btn.clicked.connect(self.save_response_to_file)
+        self.clear_resp_btn.clicked.connect(self.clear_response)
 
     def init_table(self, table):
         table.setColumnCount(5)
@@ -435,6 +437,7 @@ class MainWindow(QWidget):
         self._req_worker = None
         resp = result['resp']
         elapsed = result['elapsed']
+        self._last_response_bytes = resp.content
         status = f'{resp.status_code} {resp.reason}   {elapsed}ms   {len(resp.content)/1024:.2f}KB'
         try:
             content_type = resp.headers.get('Content-Type', '')
@@ -497,17 +500,27 @@ class MainWindow(QWidget):
 
     def save_response_to_file(self):
         from PyQt5.QtWidgets import QFileDialog, QMessageBox
-        text = self.resp_body_edit.toPlainText()
-        if not text.strip():
-            QMessageBox.warning(self, 'No Response', '响应体为空，无法保存！')
-            return
-        fname, _ = QFileDialog.getSaveFileName(self, 'Save Response', '', 'Text Files (*.txt);;All Files (*)')
+        # 优先保存原始bytes（如有），否则用文本内容编码
+        data = getattr(self, '_last_response_bytes', None)
+        if data is None:
+            text = self.resp_body_edit.toPlainText()
+            if not text.strip():
+                QMessageBox.warning(self, 'No Response', '响应体为空，无法保存！')
+                return
+            data = text.encode('utf-8')
+        fname, _ = QFileDialog.getSaveFileName(self, 'Save Response', '', 'All Files (*)')
         if fname:
             try:
-                with open(fname, 'w', encoding='utf-8') as f:
-                    f.write(text)
+                with open(fname, 'wb') as f:
+                    f.write(data)
             except Exception as e:
                 QMessageBox.warning(self, 'Save Failed', f'保存失败: {e}')
+
+    def clear_response(self):
+        self.resp_body_edit.clear()
+        self.resp_status_label.setText('Click Send to get a response')
+        self.resp_tabs.setTabText(0, 'Body')
+        self.resp_tabs.widget(1).setPlainText('')
 
     def on_raw_type_changed(self, text):
         if text == 'JSON':
