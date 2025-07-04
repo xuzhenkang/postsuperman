@@ -1313,7 +1313,7 @@ class RequestEditor(QWidget):
         code_import_row.addStretch()
         self.code_btn = QPushButton('Code')
         self.import_btn = QPushButton('Import')
-        self.save_btn = QPushButton('Save')
+        self.save_btn = QPushButton('Export Current Request')
         code_import_row.addWidget(self.code_btn)
         code_import_row.addWidget(self.import_btn)
         code_import_row.addWidget(self.save_btn)
@@ -1553,10 +1553,268 @@ class RequestEditor(QWidget):
             except Exception as e:
                 QMessageBox.warning(self, 'Save Failed', f'保存失败: {e}')
     def on_import_clicked(self):
-        # 让RequestEditor的Import按钮也调用主窗口的import_request_dialog
-        mainwin = self.window()
-        if hasattr(mainwin, 'import_request_dialog'):
-            mainwin.import_request_dialog()
+        # 优化：保留cURL和文件两种导入方式，导入前询问用户导入到新建Request还是覆盖当前
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QRadioButton, QButtonGroup, QTextEdit, QPushButton, QLabel, QFileDialog, QMessageBox, QWidget
+        from PyQt5.QtCore import Qt
+        import json
+        dlg = QDialog(self)
+        dlg.setWindowTitle('Import Request')
+        dlg.setMinimumWidth(400)
+        layout = QVBoxLayout(dlg)
+        # 单选按钮
+        radio_row = QHBoxLayout()
+        curl_radio = QRadioButton('from cURL')
+        file_radio = QRadioButton('from File')
+        radio_group = QButtonGroup(dlg)
+        radio_group.addButton(curl_radio)
+        radio_group.addButton(file_radio)
+        curl_radio.setChecked(True)
+        radio_row.addWidget(curl_radio)
+        radio_row.addWidget(file_radio)
+        radio_row.addStretch()
+        layout.addLayout(radio_row)
+        # cURL输入区
+        curl_widget = QWidget()
+        curl_layout = QVBoxLayout(curl_widget)
+        curl_layout.setContentsMargins(0,0,0,0)
+        curl_edit = QTextEdit()
+        curl_edit.setPlaceholderText('Paste your cURL command here...')
+        curl_layout.addWidget(curl_edit)
+        curl_import_btn = QPushButton('Import')
+        curl_layout.addWidget(curl_import_btn)
+        # File选择区
+        file_widget = QWidget()
+        file_layout = QVBoxLayout(file_widget)
+        file_layout.setContentsMargins(0,0,0,0)
+        file_select_btn = QPushButton('touch to select file')
+        file_select_btn.setFixedHeight(80)
+        file_select_btn.setStyleSheet('font-size:18px; color:#1976d2; background: #f5f5f5; border:1px dashed #1976d2;')
+        file_layout.addStretch()
+        file_layout.addWidget(file_select_btn, alignment=Qt.AlignCenter)
+        file_layout.addStretch()
+        # 区域切换
+        stack = QVBoxLayout()
+        stack.addWidget(curl_widget)
+        stack.addWidget(file_widget)
+        layout.addLayout(stack)
+        curl_widget.setVisible(True)
+        file_widget.setVisible(False)
+        def on_radio_changed():
+            if curl_radio.isChecked():
+                curl_widget.setVisible(True)
+                file_widget.setVisible(False)
+            else:
+                curl_widget.setVisible(False)
+                file_widget.setVisible(True)
+        curl_radio.toggled.connect(on_radio_changed)
+        file_radio.toggled.connect(on_radio_changed)
+        # cURL导入逻辑
+        def import_curl():
+            curl_cmd = curl_edit.toPlainText().strip()
+            if not curl_cmd:
+                return
+            # 解析cURL命令（略，复用原有逻辑）
+            import shlex
+            tokens = shlex.split(curl_cmd)
+            method = 'GET'
+            url = ''
+            headers = []
+            data = None
+            i = 0
+            while i < len(tokens):
+                t = tokens[i]
+                if t.lower() == 'curl':
+                    i += 1
+                    continue
+                if t == '-X' and i+1 < len(tokens):
+                    method = tokens[i+1].upper()
+                    i += 2
+                    continue
+                if t == '-H' and i+1 < len(tokens):
+                    kv = tokens[i+1]
+                    if ':' in kv:
+                        k, v = kv.split(':', 1)
+                        headers.append((k.strip(), v.strip()))
+                    i += 2
+                    continue
+                if t in ('--data', '--data-raw', '--data-binary', '--data-urlencode') and i+1 < len(tokens):
+                    data = tokens[i+1]
+                    i += 2
+                    continue
+                if not t.startswith('-') and not url:
+                    url = t
+                    i += 1
+                    continue
+                i += 1
+            # 合并默认headers
+            default_headers = {'Cache-Control': 'no-cache', 'Content-Type': 'application/json'}
+            header_dict = {k.lower(): v for k, v in headers}
+            for dk, dv in default_headers.items():
+                if dk.lower() not in header_dict:
+                    headers.append((dk, dv))
+            # 弹窗询问导入方式
+            choice = QMessageBox.question(self, '导入方式', '导入到当前Request还是新建Request导入？\n选择"是"将覆盖当前，选择"否"将新建Request导入。', QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, QMessageBox.Cancel)
+            if choice == QMessageBox.Cancel:
+                return
+            if choice == QMessageBox.Yes:
+                # 覆盖当前Request
+                self.method_combo.setCurrentText(method)
+                self.url_edit.setText(url)
+                self.headers_table.setRowCount(1)
+                for i, (k, v) in enumerate(headers):
+                    if i >= self.headers_table.rowCount()-1:
+                        self.headers_table.insertRow(self.headers_table.rowCount())
+                        self.add_table_row(self.headers_table, self.headers_table.rowCount()-1)
+                    self.headers_table.setItem(i, 1, QTableWidgetItem(k))
+                    self.headers_table.setItem(i, 2, QTableWidgetItem(v))
+                self.refresh_table_widgets(self.headers_table)
+                if data:
+                    self.body_raw_radio.setChecked(True)
+                    self.raw_text_edit.setPlainText(data)
+                else:
+                    self.body_none_radio.setChecked(True)
+            elif choice == QMessageBox.No:
+                # 新建Request导入
+                mainwin = self.window()
+                if hasattr(mainwin, 'req_tabs'):
+                    from ui.main_window import RequestEditor
+                    req_editor = RequestEditor(mainwin)
+                    req_editor.method_combo.setCurrentText(method)
+                    req_editor.url_edit.setText(url)
+                    req_editor.headers_table.setRowCount(1)
+                    for i, (k, v) in enumerate(headers):
+                        if i >= req_editor.headers_table.rowCount()-1:
+                            req_editor.headers_table.insertRow(req_editor.headers_table.rowCount())
+                            req_editor.add_table_row(req_editor.headers_table, req_editor.headers_table.rowCount()-1)
+                        req_editor.headers_table.setItem(i, 1, QTableWidgetItem(k))
+                        req_editor.headers_table.setItem(i, 2, QTableWidgetItem(v))
+                    req_editor.refresh_table_widgets(req_editor.headers_table)
+                    if data:
+                        req_editor.body_raw_radio.setChecked(True)
+                        req_editor.raw_text_edit.setPlainText(data)
+                    else:
+                        req_editor.body_none_radio.setChecked(True)
+                    mainwin.req_tabs.addTab(req_editor, 'Imported Request')
+                    mainwin.req_tabs.setCurrentWidget(req_editor)
+            dlg.accept()
+        curl_import_btn.clicked.connect(import_curl)
+        # File导入逻辑
+        def import_file():
+            fname, _ = QFileDialog.getOpenFileName(self, '导入请求', '', 'JSON Files (*.json);;All Files (*)')
+            if not fname:
+                return
+            try:
+                with open(fname, 'r', encoding='utf-8') as f:
+                    req_data = json.load(f)
+            except Exception as e:
+                QMessageBox.warning(self, '导入失败', f'读取文件失败: {e}')
+                return
+            choice = QMessageBox.question(self, '导入方式', '导入到当前Request还是新建Request导入？\n选择"是"将覆盖当前，选择"否"将新建Request导入。', QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, QMessageBox.Cancel)
+            if choice == QMessageBox.Cancel:
+                return
+            if choice == QMessageBox.Yes:
+                # 覆盖当前Request
+                self.method_combo.setCurrentText(req_data.get('method', 'GET'))
+                self.url_edit.setText(req_data.get('url', ''))
+                # Params
+                self.params_table.setRowCount(1)
+                for i, param in enumerate(req_data.get('params', [])):
+                    if i >= self.params_table.rowCount()-1:
+                        self.params_table.insertRow(self.params_table.rowCount())
+                        self.add_table_row(self.params_table, self.params_table.rowCount()-1)
+                    self.params_table.setItem(i, 1, QTableWidgetItem(param.get('key', '')))
+                    self.params_table.setItem(i, 2, QTableWidgetItem(param.get('value', '')))
+                # Headers
+                self.headers_table.setRowCount(1)
+                for i, h in enumerate(req_data.get('headers', [])):
+                    if i >= self.headers_table.rowCount()-1:
+                        self.headers_table.insertRow(self.headers_table.rowCount())
+                        self.add_table_row(self.headers_table, self.headers_table.rowCount()-1)
+                    self.headers_table.setItem(i, 1, QTableWidgetItem(h.get('key', '')))
+                    self.headers_table.setItem(i, 2, QTableWidgetItem(h.get('value', '')))
+                self.refresh_table_widgets(self.headers_table)
+                # Body
+                body_type = req_data.get('body_type', 'none')
+                if body_type == 'form-data':
+                    self.body_form_radio.setChecked(True)
+                    self.form_table.setRowCount(1)
+                    for i, item in enumerate(req_data.get('body', [])):
+                        if i >= self.form_table.rowCount()-1:
+                            self.form_table.insertRow(self.form_table.rowCount())
+                            self.add_table_row(self.form_table, self.form_table.rowCount()-1)
+                        self.form_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                        self.form_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                elif body_type == 'x-www-form-urlencoded':
+                    self.body_url_radio.setChecked(True)
+                    self.url_table.setRowCount(1)
+                    for i, item in enumerate(req_data.get('body', [])):
+                        if i >= self.url_table.rowCount()-1:
+                            self.url_table.insertRow(self.url_table.rowCount())
+                            self.add_table_row(self.url_table, self.url_table.rowCount()-1)
+                        self.url_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                        self.url_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                elif body_type == 'raw':
+                    self.body_raw_radio.setChecked(True)
+                    self.raw_text_edit.setPlainText(req_data.get('body', ''))
+                    self.raw_type_combo.setCurrentText(req_data.get('raw_type', 'JSON'))
+                else:
+                    self.body_none_radio.setChecked(True)
+            elif choice == QMessageBox.No:
+                # 新建Request导入
+                mainwin = self.window()
+                if hasattr(mainwin, 'req_tabs'):
+                    from ui.main_window import RequestEditor
+                    req_editor = RequestEditor(mainwin)
+                    req_editor.method_combo.setCurrentText(req_data.get('method', 'GET'))
+                    req_editor.url_edit.setText(req_data.get('url', ''))
+                    # Params
+                    req_editor.params_table.setRowCount(1)
+                    for i, param in enumerate(req_data.get('params', [])):
+                        if i >= req_editor.params_table.rowCount()-1:
+                            req_editor.params_table.insertRow(req_editor.params_table.rowCount())
+                            req_editor.add_table_row(req_editor.params_table, req_editor.params_table.rowCount()-1)
+                        req_editor.params_table.setItem(i, 1, QTableWidgetItem(param.get('key', '')))
+                        req_editor.params_table.setItem(i, 2, QTableWidgetItem(param.get('value', '')))
+                    # Headers
+                    req_editor.headers_table.setRowCount(1)
+                    for i, h in enumerate(req_data.get('headers', [])):
+                        if i >= req_editor.headers_table.rowCount()-1:
+                            req_editor.headers_table.insertRow(req_editor.headers_table.rowCount())
+                            req_editor.add_table_row(req_editor.headers_table, req_editor.headers_table.rowCount()-1)
+                        req_editor.headers_table.setItem(i, 1, QTableWidgetItem(h.get('key', '')))
+                        req_editor.headers_table.setItem(i, 2, QTableWidgetItem(h.get('value', '')))
+                    req_editor.refresh_table_widgets(req_editor.headers_table)
+                    # Body
+                    body_type = req_data.get('body_type', 'none')
+                    if body_type == 'form-data':
+                        req_editor.body_form_radio.setChecked(True)
+                        req_editor.form_table.setRowCount(1)
+                        for i, item in enumerate(req_data.get('body', [])):
+                            if i >= req_editor.form_table.rowCount()-1:
+                                req_editor.form_table.insertRow(req_editor.form_table.rowCount())
+                                req_editor.add_table_row(req_editor.form_table, req_editor.form_table.rowCount()-1)
+                            req_editor.form_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                            req_editor.form_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                    elif body_type == 'x-www-form-urlencoded':
+                        req_editor.body_url_radio.setChecked(True)
+                        req_editor.url_table.setRowCount(1)
+                        for i, item in enumerate(req_data.get('body', [])):
+                            if i >= req_editor.url_table.rowCount()-1:
+                                req_editor.url_table.insertRow(req_editor.url_table.rowCount())
+                                req_editor.add_table_row(req_editor.url_table, req_editor.url_table.rowCount()-1)
+                            req_editor.url_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                            req_editor.url_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                    elif body_type == 'raw':
+                        req_editor.body_raw_radio.setChecked(True)
+                        req_editor.raw_text_edit.setPlainText(req_data.get('body', ''))
+                        req_editor.raw_type_combo.setCurrentText(req_data.get('raw_type', 'JSON'))
+                    else:
+                        req_editor.body_none_radio.setChecked(True)
+                    mainwin.req_tabs.addTab(req_editor, 'Imported Request')
+                    mainwin.req_tabs.setCurrentWidget(req_editor)
+            dlg.accept()
+        file_select_btn.clicked.connect(import_file)
+        dlg.exec_()
     def on_code_clicked(self):
         from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel
         from PyQt5.QtCore import QTimer
