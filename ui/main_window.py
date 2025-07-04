@@ -1,12 +1,14 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QListWidget, QTextEdit, QLineEdit, QComboBox, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QTabWidget, QHeaderView, QFrame, QTreeWidget, QTreeWidgetItem, QButtonGroup, QRadioButton, QStackedWidget, QCheckBox, QMenuBar, QMenu, QAction, QFileDialog, QMessageBox, QDialog, QInputDialog
 )
-from PyQt5.QtCore import Qt, QRect, QSize
+from PyQt5.QtCore import Qt, QRect, QSize, QTimer
 from PyQt5.QtGui import QClipboard, QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QTextCursor, QIcon
 from PyQt5.QtWidgets import QApplication, QStyle
 import json
 import requests
 import time
+import shlex
+import urllib.parse
 
 class MainWindow(QWidget):
     def __init__(self):
@@ -997,6 +999,7 @@ class RequestEditor(QWidget):
         self.send_btn.clicked.connect(self.on_send_clicked)
         self.save_btn.clicked.connect(self.on_save_clicked)
         self.import_btn.clicked.connect(self.on_import_clicked)
+        self.code_btn.clicked.connect(self.on_code_clicked)
         # 添加响应内容属性
         self.resp_status = ''
         self.resp_body = ''
@@ -1182,4 +1185,92 @@ class RequestEditor(QWidget):
             self.raw_type_combo.setCurrentText(req_data.get('raw_type', 'JSON'))
         else:
             self.body_none_radio.setChecked(True)
-        QMessageBox.information(self, '导入成功', '请求已导入！') 
+        QMessageBox.information(self, '导入成功', '请求已导入！')
+    def on_code_clicked(self):
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel
+        from PyQt5.QtCore import QTimer
+        from PyQt5.QtGui import QClipboard
+        dlg = QDialog(self)
+        dlg.setWindowTitle('cURL')
+        layout = QVBoxLayout(dlg)
+        label = QLabel('cURL command:')
+        layout.addWidget(label)
+        # 生成cURL命令
+        method = self.method_combo.currentText()
+        url = self.url_edit.text().strip()
+        # Params
+        params = []
+        for row in range(self.params_table.rowCount()-1):
+            key_item = self.params_table.item(row, 1)
+            value_item = self.params_table.item(row, 2)
+            if key_item and key_item.text().strip():
+                params.append((key_item.text().strip(), value_item.text().strip() if value_item else ''))
+        # 拼接URL参数
+        if params:
+            url_parts = urllib.parse.urlsplit(url)
+            query = urllib.parse.parse_qsl(url_parts.query)
+            query += params
+            url = urllib.parse.urlunsplit((url_parts.scheme, url_parts.netloc, url_parts.path, urllib.parse.urlencode(query), url_parts.fragment))
+        # Headers
+        headers = []
+        for row in range(self.headers_table.rowCount()-1):
+            key_item = self.headers_table.item(row, 1)
+            value_item = self.headers_table.item(row, 2)
+            if key_item and key_item.text().strip():
+                headers.append((key_item.text().strip(), value_item.text().strip() if value_item else ''))
+        # Body
+        body = None
+        body_type = None
+        if self.body_form_radio.isChecked():
+            body_type = 'form-data'
+            form = []
+            for row in range(self.form_table.rowCount()-1):
+                key_item = self.form_table.item(row, 1)
+                value_item = self.form_table.item(row, 2)
+                if key_item and key_item.text().strip():
+                    form.append((key_item.text().strip(), value_item.text().strip() if value_item else ''))
+            if form:
+                # --form 'key=value'
+                body = ' '.join([f"--form {shlex.quote(f'{k}={v}')}" for k, v in form])
+        elif self.body_url_radio.isChecked():
+            body_type = 'x-www-form-urlencoded'
+            urlencoded = []
+            for row in range(self.url_table.rowCount()-1):
+                key_item = self.url_table.item(row, 1)
+                value_item = self.url_table.item(row, 2)
+                if key_item and key_item.text().strip():
+                    urlencoded.append((key_item.text().strip(), value_item.text().strip() if value_item else ''))
+            if urlencoded:
+                # --data 'key1=val1&key2=val2'
+                body = f"--data {shlex.quote('&'.join(f'{k}={v}' for k, v in urlencoded))}"
+        elif self.body_raw_radio.isChecked():
+            body_type = 'raw'
+            raw = self.raw_text_edit.toPlainText()
+            if raw:
+                body = f"--data-raw {shlex.quote(raw)}"
+        # 组装cURL命令
+        parts = ["curl", "-X", shlex.quote(method)]
+        for k, v in headers:
+            parts.append(f"-H {shlex.quote(f'{k}: {v}')}")
+        if body:
+            parts.append(body)
+        parts.append(shlex.quote(url))
+        curl_cmd = ' '.join(parts)
+        # 弹窗展示
+        curl_edit = QTextEdit()
+        curl_edit.setReadOnly(True)
+        curl_edit.setPlainText(curl_cmd)
+        layout.addWidget(curl_edit)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        copy_btn = QPushButton('Copy to Clipboard')
+        btn_row.addWidget(copy_btn)
+        layout.addLayout(btn_row)
+        def do_copy():
+            clipboard = dlg.clipboard() if hasattr(dlg, 'clipboard') else self.clipboard() if hasattr(self, 'clipboard') else QApplication.clipboard()
+            clipboard.setText(curl_cmd)
+            copy_btn.setText('Copied')
+            copy_btn.setEnabled(False)
+            QTimer.singleShot(2000, lambda: (copy_btn.setText('Copy to Clipboard'), copy_btn.setEnabled(True)))
+        copy_btn.clicked.connect(do_copy)
+        dlg.exec_() 
