@@ -10,6 +10,10 @@ import time
 import shlex
 import urllib.parse
 import threading
+import sys
+
+app = QApplication(sys.argv)
+app.setWindowIcon(QIcon('ui/app.ico'))  # 路径根据实际文件调整
 
 class MainWindow(QWidget):
     def __init__(self):
