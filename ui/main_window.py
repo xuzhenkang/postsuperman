@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QListWidget, QTextEdit, QLineEdit, QComboBox, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QTabWidget, QHeaderView, QFrame, QTreeWidget, QTreeWidgetItem, QButtonGroup, QRadioButton, QStackedWidget, QCheckBox, QMenuBar, QMenu, QAction, QFileDialog, QMessageBox, QDialog, QInputDialog, QProgressBar
 )
-from PyQt5.QtCore import Qt, QRect, QSize, QTimer
+from PyQt5.QtCore import Qt, QRect, QSize, QTimer, QThread, pyqtSignal, QObject
 from PyQt5.QtGui import QClipboard, QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QTextCursor, QIcon
 from PyQt5.QtWidgets import QApplication, QStyle
 import json
@@ -9,12 +9,15 @@ import requests
 import time
 import shlex
 import urllib.parse
+import threading
 
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('postsuperman')
         self.resize(1440, 900)
+        self._req_thread = None
+        self._req_worker = None
         self.init_ui()
 
     def init_ui(self):
@@ -166,6 +169,7 @@ class MainWindow(QWidget):
         self.resp_tabs.addTab(resp_headers_widget, 'Headers')
         resp_card_layout.addWidget(self.resp_tabs)
         resp_card.setLayout(resp_card_layout)
+        self.resp_loading_overlay = RespLoadingOverlay(resp_card, mainwin=self)
         vertical_splitter.addWidget(self.req_tabs)
         vertical_splitter.addWidget(resp_card)
         vertical_splitter.setSizes([500, 300])
@@ -344,13 +348,12 @@ class MainWindow(QWidget):
         dlg.exec_()
 
     def send_request(self, editor=None):
-        print(f'[DEBUG] MainWindow.send_request called, editor={editor}')
+        if self._req_thread and self._req_thread.isRunning():
+            return  # 已有请求在进行中
         if editor is None:
-            print('[DEBUG] editor is None, return')
             return
         method = editor.method_combo.currentText()
         url = editor.url_edit.text().strip()
-        print(f'[DEBUG] method={method}, url={url}')
         # 拼接Params
         params = {}
         for row in range(editor.params_table.rowCount()-1):
@@ -361,7 +364,6 @@ class MainWindow(QWidget):
             value_item = editor.params_table.item(row, 2)
             if key_item and key_item.text().strip():
                 params[key_item.text().strip()] = value_item.text().strip() if value_item else ''
-        # Headers
         headers = {}
         for row in range(editor.headers_table.rowCount()-1):
             cb = editor.headers_table.cellWidget(row, 0)
@@ -371,12 +373,10 @@ class MainWindow(QWidget):
             value_item = editor.headers_table.item(row, 2)
             if key_item and key_item.text().strip():
                 headers[key_item.text().strip()] = value_item.text().strip() if value_item else ''
-        # Body
         data = None
         json_data = None
         files = None
         if editor.body_form_radio.isChecked():
-            # form-data
             data = {}
             for row in range(editor.form_table.rowCount()-1):
                 cb = editor.form_table.cellWidget(row, 0)
@@ -387,7 +387,6 @@ class MainWindow(QWidget):
                 if key_item and key_item.text().strip():
                     data[key_item.text().strip()] = value_item.text().strip() if value_item else ''
         elif editor.body_url_radio.isChecked():
-            # x-www-form-urlencoded
             data = {}
             for row in range(editor.url_table.rowCount()-1):
                 cb = editor.url_table.cellWidget(row, 0)
@@ -398,7 +397,6 @@ class MainWindow(QWidget):
                 if key_item and key_item.text().strip():
                     data[key_item.text().strip()] = value_item.text().strip() if value_item else ''
         elif editor.body_raw_radio.isChecked():
-            # raw
             raw_type = editor.raw_type_combo.currentText()
             raw_text = editor.raw_text_edit.toPlainText()
             if raw_type == 'JSON':
@@ -408,29 +406,37 @@ class MainWindow(QWidget):
                     json_data = None
             else:
                 data = raw_text
-        # 显示加载层
-        loading = LoadingDialog(self)
-        loading.show()
+        # 显示遮罩层
+        overlay = self.resp_loading_overlay
+        overlay.setGeometry(0, 0, overlay.parent().width(), overlay.parent().height())
+        overlay.raise_()
+        overlay.setVisible(True)
         QApplication.processEvents()
-        try:
-            start = time.time()
-            resp = requests.request(method, url, params=params, headers=headers, data=data, json=json_data, files=files)
-            elapsed = int((time.time() - start) * 1000)
-        except Exception as e:
-            loading.close()
-            status = f'Error: {e}'
-            body = ''
-            headers_str = ''
-            self.resp_status_label.setText(status)
-            self.resp_body_edit.setPlainText(body)
-            self.resp_tabs.setCurrentIndex(0)
-            # 保存到editor
-            editor.resp_status = status
-            editor.resp_body = body
-            editor.resp_headers = headers_str
-            return
-        loading.close()
-        # 响应区展示
+        # 启动线程
+        self._req_worker = RequestWorker(method, url, params, headers, data, json_data, files)
+        self._req_thread = QThread()
+        self._req_worker.moveToThread(self._req_thread)
+        self._req_thread.started.connect(self._req_worker.run)
+        self._req_worker.finished.connect(lambda result: self.on_request_finished(result, editor))
+        self._req_worker.error.connect(lambda msg: self.on_request_error(msg, editor))
+        self._req_worker.stopped.connect(self.on_request_stopped)
+        self._req_worker.finished.connect(self._req_thread.quit)
+        self._req_worker.error.connect(self._req_thread.quit)
+        self._req_worker.stopped.connect(self._req_thread.quit)
+        self._req_thread.finished.connect(self._req_worker.deleteLater)
+        self._req_thread.finished.connect(self._req_thread.deleteLater)
+        self._req_thread.start()
+
+    def on_request_finished(self, result, editor):
+        overlay = self.resp_loading_overlay
+        overlay.setVisible(False)
+        if self._req_thread:
+            self._req_thread.quit()
+            self._req_thread.wait()
+        self._req_thread = None
+        self._req_worker = None
+        resp = result['resp']
+        elapsed = result['elapsed']
         status = f'{resp.status_code} {resp.reason}   {elapsed}ms   {len(resp.content)/1024:.2f}KB'
         try:
             content_type = resp.headers.get('Content-Type', '')
@@ -454,6 +460,34 @@ class MainWindow(QWidget):
         editor.resp_body = body
         editor.resp_headers = headers_str
 
+    def on_request_error(self, msg, editor):
+        overlay = self.resp_loading_overlay
+        overlay.setVisible(False)
+        if self._req_thread:
+            self._req_thread.quit()
+            self._req_thread.wait()
+        self._req_thread = None
+        self._req_worker = None
+        status = f'Error: {msg}'
+        body = ''
+        headers_str = ''
+        self.resp_status_label.setText(status)
+        self.resp_body_edit.setPlainText(body)
+        self.resp_tabs.setCurrentIndex(0)
+        # 保存到editor
+        editor.resp_status = status
+        editor.resp_body = body
+        editor.resp_headers = headers_str
+
+    def on_request_stopped(self):
+        overlay = self.resp_loading_overlay
+        overlay.setVisible(False)
+        if self._req_thread:
+            self._req_thread.quit()
+            self._req_thread.wait()
+        self._req_thread = None
+        self._req_worker = None
+
     def save_response_to_file(self):
         from PyQt5.QtWidgets import QFileDialog, QMessageBox
         text = self.resp_body_edit.toPlainText()
@@ -467,11 +501,6 @@ class MainWindow(QWidget):
                     f.write(text)
             except Exception as e:
                 QMessageBox.warning(self, 'Save Failed', f'保存失败: {e}')
-
-    def clear_response(self):
-        self.resp_status_label.setText('Click Send to get a response')
-        self.resp_body_edit.clear()
-        self.resp_tabs.widget(1).setPlainText('')
 
     def on_raw_type_changed(self, text):
         if text == 'JSON':
@@ -679,6 +708,19 @@ class MainWindow(QWidget):
             self.resp_status_label.setText('')
             self.resp_body_edit.setPlainText('')
             self.resp_tabs.widget(1).setPlainText('')
+
+    def on_stop_request(self):
+        if self._req_worker:
+            self._req_worker.stop()
+        self.resp_loading_overlay.setVisible(False)
+
+    def closeEvent(self, event):
+        if self._req_worker:
+            self._req_worker.stop()
+        if self._req_thread:
+            self._req_thread.quit()
+            self._req_thread.wait()
+        event.accept()
 
 class JsonHighlighter(QSyntaxHighlighter):
     def __init__(self, parent=None):
@@ -1287,19 +1329,75 @@ class RequestEditor(QWidget):
         copy_btn.clicked.connect(do_copy)
         dlg.exec_() 
 
-# MainWindow类外部添加LoadingDialog
-class LoadingDialog(QDialog):
-    def __init__(self, parent=None):
+# MainWindow类外部添加RespLoadingOverlay
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QProgressBar
+from PyQt5.QtCore import Qt
+class RespLoadingOverlay(QWidget):
+    def __init__(self, parent=None, mainwin=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-        self.setModal(True)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet('background: rgba(255,255,255,180); border-radius: 8px;')
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignCenter)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)
+        self.progress.setFixedWidth(120)
         self.label = QLabel('Loading...')
         self.label.setAlignment(Qt.AlignCenter)
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 0)  # 无限循环
         layout.addWidget(self.progress)
         layout.addWidget(self.label)
-        self.setFixedSize(200, 100) 
+        from PyQt5.QtWidgets import QPushButton
+        self.stop_btn = QPushButton('Stop')
+        self.stop_btn.setFixedWidth(80)
+        self.stop_btn.setStyleSheet('QPushButton {background-color: #d32f2f; color: white; font-weight: bold; border-radius: 6px;} QPushButton:pressed {background-color: #b71c1c;}')
+        layout.addWidget(self.stop_btn)
+        self.setVisible(False)
+        # 绑定主窗口的on_stop_request
+        if mainwin:
+            self.stop_btn.clicked.connect(mainwin.on_stop_request) 
+
+# 添加Worker类用于网络请求
+class RequestWorker(QObject):
+    finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
+    stopped = pyqtSignal()
+    def __init__(self, method, url, params, headers, data, json_data, files):
+        super().__init__()
+        self.method = method
+        self.url = url
+        self.params = params
+        self.headers = headers
+        self.data = data
+        self.json_data = json_data
+        self.files = files
+        self._should_stop = False
+    def stop(self):
+        self._should_stop = True
+    def run(self):
+        import requests, time
+        resp = None
+        exc = None
+        chunk_timeout = 0.5
+        start = time.time()
+        elapsed = 0
+        while not self._should_stop:
+            try:
+                resp = requests.request(self.method, self.url, params=self.params, headers=self.headers, data=self.data, json=self.json_data, files=self.files, timeout=chunk_timeout)
+                break
+            except requests.exceptions.Timeout:
+                elapsed = time.time() - start
+                if self._should_stop:
+                    break
+                continue
+            except Exception as e:
+                exc = e
+                break
+        elapsed = int((time.time() - start) * 1000)
+        if self._should_stop:
+            self.stopped.emit()
+            return
+        if exc:
+            self.error.emit(str(exc))
+            return
+        # 只传递原始响应和耗时，主线程处理UI
+        self.finished.emit({'resp': resp, 'elapsed': elapsed}) 
