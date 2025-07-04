@@ -11,6 +11,7 @@ import shlex
 import urllib.parse
 import threading
 import sys
+import os
 
 app = QApplication(sys.argv)
 app.setWindowIcon(QIcon('ui/app.ico'))  # 路径根据实际文件调整
@@ -18,12 +19,17 @@ app.setWindowIcon(QIcon('ui/app.ico'))  # 路径根据实际文件调整
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
+        import json, os
+        # collections.json与main.py同级
+        self._workspace_dir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+        self._unsaved_changes = False
         self.setWindowTitle('postsuperman')
         self.resize(1440, 900)
         self._req_thread = None
         self._req_worker = None
         self._current_editor = None
         self.init_ui()
+        self.load_collections()
 
     def init_ui(self):
         main_layout = QVBoxLayout(self)
@@ -32,15 +38,18 @@ class MainWindow(QWidget):
 
         # 菜单栏
         menubar = QMenuBar(self)
-        file_menu = QMenu('File', self)
+        file_menu = menubar.addMenu('File')
         import_action = QAction('Import', self)
         export_action = QAction('Export', self)
+        save_all_action = QAction('Save All', self)
         exit_action = QAction('Exit', self)
         file_menu.addAction(import_action)
         file_menu.addAction(export_action)
+        file_menu.addAction(save_all_action)
         file_menu.addSeparator()
         file_menu.addAction(exit_action)
-        menubar.addMenu(file_menu)
+        # self.setMenuBar(menubar)  # <-- 删除这行
+        save_all_action.triggered.connect(self.save_all)
         help_menu = QMenu('Help', self)
         about_action = QAction('About', self)
         doc_action = QAction('Documentation', self)
@@ -720,9 +729,76 @@ class MainWindow(QWidget):
                 if self.req_tabs.tabText(i) == name:
                     self.req_tabs.setCurrentIndex(i)
                     return
+            # 从collections.json加载内容
+            req_data = self.get_request_data_from_tree(item)
             req_editor = RequestEditor(self, req_name=name)
+            if req_data:
+                req_editor.method_combo.setCurrentText(req_data.get('method', 'GET'))
+                req_editor.url_edit.setText(req_data.get('url', ''))
+                # Params
+                req_editor.params_table.setRowCount(1)
+                for i, param in enumerate(req_data.get('params', [])):
+                    if i >= req_editor.params_table.rowCount()-1:
+                        req_editor.params_table.insertRow(req_editor.params_table.rowCount())
+                        req_editor.add_table_row(req_editor.params_table, req_editor.params_table.rowCount()-1)
+                    req_editor.params_table.setItem(i, 1, QTableWidgetItem(param.get('key', '')))
+                    req_editor.params_table.setItem(i, 2, QTableWidgetItem(param.get('value', '')))
+                # Headers
+                req_editor.headers_table.setRowCount(1)
+                for i, h in enumerate(req_data.get('headers', [])):
+                    if i >= req_editor.headers_table.rowCount()-1:
+                        req_editor.headers_table.insertRow(req_editor.headers_table.rowCount())
+                        req_editor.add_table_row(req_editor.headers_table, req_editor.headers_table.rowCount()-1)
+                    req_editor.headers_table.setItem(i, 1, QTableWidgetItem(h.get('key', '')))
+                    req_editor.headers_table.setItem(i, 2, QTableWidgetItem(h.get('value', '')))
+                req_editor.refresh_table_widgets(req_editor.headers_table)
+                # Body
+                body_type = req_data.get('body_type', 'none')
+                if body_type == 'form-data':
+                    req_editor.body_form_radio.setChecked(True)
+                    req_editor.form_table.setRowCount(1)
+                    for i, item in enumerate(req_data.get('body', [])):
+                        if i >= req_editor.form_table.rowCount()-1:
+                            req_editor.form_table.insertRow(req_editor.form_table.rowCount())
+                            req_editor.add_table_row(req_editor.form_table, req_editor.form_table.rowCount()-1)
+                        req_editor.form_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                        req_editor.form_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                elif body_type == 'x-www-form-urlencoded':
+                    req_editor.body_url_radio.setChecked(True)
+                    req_editor.url_table.setRowCount(1)
+                    for i, item in enumerate(req_data.get('body', [])):
+                        if i >= req_editor.url_table.rowCount()-1:
+                            req_editor.url_table.insertRow(req_editor.url_table.rowCount())
+                            req_editor.add_table_row(req_editor.url_table, req_editor.url_table.rowCount()-1)
+                        req_editor.url_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                        req_editor.url_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                elif body_type == 'raw':
+                    req_editor.body_raw_radio.setChecked(True)
+                    req_editor.raw_text_edit.setPlainText(req_data.get('body', ''))
+                    req_editor.raw_type_combo.setCurrentText(req_data.get('raw_type', 'JSON'))
+                else:
+                    req_editor.body_none_radio.setChecked(True)
             self.req_tabs.addTab(req_editor, name)
             self.req_tabs.setCurrentWidget(req_editor)
+
+    def get_request_data_from_tree(self, item):
+        # 从collections.json结构递归查找对应request数据
+        import json, os
+        path = os.path.join(self._workspace_dir, 'collections.json')
+        if not os.path.exists(path):
+            return None
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        def find_req(nodes, name):
+            for node in nodes:
+                if node.get('type') == 'request' and node['name'] == name:
+                    return node['request']
+                if node.get('type') == 'collection' and 'children' in node:
+                    found = find_req(node['children'], name)
+                    if found:
+                        return found
+            return None
+        return find_req(data, item.text(0))
 
     def on_req_tab_changed(self, idx):
         editor = self.req_tabs.widget(idx)
@@ -943,6 +1019,72 @@ class MainWindow(QWidget):
             dlg.accept()
         file_select_btn.clicked.connect(import_file)
         dlg.exec_()
+
+    def save_all(self):
+        import json, os
+        data = self.serialize_collections()
+        path = os.path.join(self._workspace_dir, 'collections.json')
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            self._unsaved_changes = False
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.information(self, 'Save All', '全部已保存')
+        except Exception as e:
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.warning(self, 'Save Failed', f'保存失败: {e}')
+
+    def serialize_collections(self):
+        # 遍历self.collection_tree，收集所有集合和请求内容
+        def serialize_item(item):
+            if item.childCount() == 0:  # request
+                req_widget = self.find_request_by_name(item.text(0))
+                return {
+                    'name': item.text(0),
+                    'type': 'request',
+                    'request': req_widget and req_widget.serialize_request()
+                }
+            else:
+                return {
+                    'name': item.text(0),
+                    'type': 'collection',
+                    'children': [serialize_item(item.child(i)) for i in range(item.childCount())]
+                }
+        data = []
+        for i in range(self.collection_tree.topLevelItemCount()):
+            data.append(serialize_item(self.collection_tree.topLevelItem(i)))
+        return data
+
+    def find_request_by_name(self, name):
+        for i in range(self.req_tabs.count()):
+            if self.req_tabs.tabText(i) == name:
+                return self.req_tabs.widget(i)
+        return None
+
+    def load_collections(self):
+        import json, os
+        path = os.path.join(self._workspace_dir, 'collections.json')
+        if not os.path.exists(path):
+            return
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            self.populate_collections(data)
+        except Exception as e:
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.warning(self, 'Load Failed', f'加载失败: {e}')
+
+    def populate_collections(self, data):
+        self.collection_tree.clear()
+        def add_items(parent, nodes):
+            for node in nodes:
+                item = QTreeWidgetItem(parent, [node['name']])
+                if node.get('type') == 'collection':
+                    item.setIcon(0, self.folder_icon)
+                    add_items(item, node.get('children', []))
+                elif node.get('type') == 'request':
+                    item.setIcon(0, self.file_icon)
+        add_items(self.collection_tree, data)
 
 class JsonHighlighter(QSyntaxHighlighter):
     def __init__(self, parent=None):
@@ -1503,6 +1645,44 @@ class RequestEditor(QWidget):
             QTimer.singleShot(2000, lambda: (copy_btn.setText('Copy to Clipboard'), copy_btn.setEnabled(True)))
         copy_btn.clicked.connect(do_copy)
         dlg.exec_() 
+
+    def serialize_request(self):
+        req_data = {
+            'method': self.method_combo.currentText(),
+            'url': self.url_edit.text().strip(),
+            'params': [
+                {'key': self.params_table.item(row, 1).text() if self.params_table.item(row, 1) else '',
+                 'value': self.params_table.item(row, 2).text() if self.params_table.item(row, 2) else ''}
+                for row in range(self.params_table.rowCount()-1)
+            ],
+            'headers': [
+                {'key': self.headers_table.item(row, 1).text() if self.headers_table.item(row, 1) else '',
+                 'value': self.headers_table.item(row, 2).text() if self.headers_table.item(row, 2) else ''}
+                for row in range(self.headers_table.rowCount()-1)
+            ],
+        }
+        if self.body_form_radio.isChecked():
+            req_data['body_type'] = 'form-data'
+            req_data['body'] = [
+                {'key': self.form_table.item(row, 1).text() if self.form_table.item(row, 1) else '',
+                 'value': self.form_table.item(row, 2).text() if self.form_table.item(row, 2) else ''}
+                for row in range(self.form_table.rowCount()-1)
+            ]
+        elif self.body_url_radio.isChecked():
+            req_data['body_type'] = 'x-www-form-urlencoded'
+            req_data['body'] = [
+                {'key': self.url_table.item(row, 1).text() if self.url_table.item(row, 1) else '',
+                 'value': self.url_table.item(row, 2).text() if self.url_table.item(row, 2) else ''}
+                for row in range(self.url_table.rowCount()-1)
+            ]
+        elif self.body_raw_radio.isChecked():
+            req_data['body_type'] = 'raw'
+            req_data['body'] = self.raw_text_edit.toPlainText()
+            req_data['raw_type'] = self.raw_type_combo.currentText()
+        else:
+            req_data['body_type'] = 'none'
+            req_data['body'] = ''
+        return req_data
 
 # MainWindow类外部添加RespLoadingOverlay
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QProgressBar
