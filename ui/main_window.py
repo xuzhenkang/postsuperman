@@ -824,6 +824,12 @@ class MainWindow(QWidget):
                     i += 1
                     continue
                 i += 1
+            # 合并默认headers
+            default_headers = {'Cache-Control': 'no-cache', 'Content-Type': 'application/json'}
+            header_dict = {k.lower(): v for k, v in headers}
+            for dk, dv in default_headers.items():
+                if dk.lower() not in header_dict:
+                    headers.append((dk, dv))
             # 新建Tab
             from ui.main_window import RequestEditor
             req_editor = RequestEditor(self)
@@ -834,6 +840,7 @@ class MainWindow(QWidget):
                 req_editor.headers_table.setItem(row, 1, QTableWidgetItem(k))
                 req_editor.headers_table.setItem(row, 2, QTableWidgetItem(v))
                 req_editor.headers_table.insertRow(req_editor.headers_table.rowCount())
+            req_editor.refresh_table_widgets(req_editor.headers_table)
             if data:
                 req_editor.body_raw_radio.setChecked(True)
                 req_editor.raw_text_edit.setPlainText(data)
@@ -853,6 +860,14 @@ class MainWindow(QWidget):
                 from PyQt5.QtWidgets import QMessageBox
                 QMessageBox.warning(self, '导入失败', f'读取文件失败: {e}')
                 return
+            # 合并默认headers
+            default_headers = {'Cache-Control': 'no-cache', 'Content-Type': 'application/json'}
+            # 先收集导入headers
+            import_headers = [(h.get('key', ''), h.get('value', '')) for h in req_data.get('headers', [])]
+            header_dict = {k.lower(): v for k, v in import_headers}
+            for dk, dv in default_headers.items():
+                if dk.lower() not in header_dict:
+                    import_headers.append((dk, dv))
             # 新建Tab
             from ui.main_window import RequestEditor
             req_editor = RequestEditor(self)
@@ -867,11 +882,13 @@ class MainWindow(QWidget):
                 req_editor.params_table.setItem(i, 2, QTableWidgetItem(param.get('value', '')))
             # Headers
             req_editor.headers_table.setRowCount(1)
-            for i, header in enumerate(req_data.get('headers', [])):
+            for i, (k, v) in enumerate(import_headers):
                 if i >= req_editor.headers_table.rowCount()-1:
                     req_editor.headers_table.insertRow(req_editor.headers_table.rowCount())
-                req_editor.headers_table.setItem(i, 1, QTableWidgetItem(header.get('key', '')))
-                req_editor.headers_table.setItem(i, 2, QTableWidgetItem(header.get('value', '')))
+                    req_editor.add_table_row(req_editor.headers_table, req_editor.headers_table.rowCount()-1)
+                req_editor.headers_table.setItem(i, 1, QTableWidgetItem(k))
+                req_editor.headers_table.setItem(i, 2, QTableWidgetItem(v))
+            req_editor.refresh_table_widgets(req_editor.headers_table)
             # Body
             body_type = req_data.get('body_type', 'none')
             if body_type == 'form-data':
@@ -1238,6 +1255,19 @@ class RequestEditor(QWidget):
         self.resp_status = ''
         self.resp_body = ''
         self.resp_headers = ''
+
+    def refresh_table_widgets(self, table):
+        for r in range(table.rowCount()):
+            is_last = (r == table.rowCount() - 1)
+            cb = table.cellWidget(r, 0)
+            if cb:
+                cb.setVisible(not is_last)
+            btn_w = table.cellWidget(r, 4)
+            if btn_w:
+                btn = btn_w.findChild(QPushButton)
+                if btn:
+                    btn.setVisible(not is_last)
+
     def init_table(self, table):
         table.setColumnCount(5)
         table.setHorizontalHeaderLabels(['', 'Key', 'Value', 'Description', 'Operation'])
