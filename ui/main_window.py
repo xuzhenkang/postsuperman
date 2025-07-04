@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QListWidget, QTextEdit, QLineEdit, QComboBox, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QTabWidget, QHeaderView, QFrame, QTreeWidget, QTreeWidgetItem, QButtonGroup, QRadioButton, QStackedWidget, QCheckBox, QMenuBar, QMenu, QAction, QFileDialog, QMessageBox, QDialog, QInputDialog
+    QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QListWidget, QTextEdit, QLineEdit, QComboBox, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QTabWidget, QHeaderView, QFrame, QTreeWidget, QTreeWidgetItem, QButtonGroup, QRadioButton, QStackedWidget, QCheckBox, QMenuBar, QMenu, QAction, QFileDialog, QMessageBox, QDialog, QInputDialog, QProgressBar
 )
 from PyQt5.QtCore import Qt, QRect, QSize, QTimer
 from PyQt5.QtGui import QClipboard, QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QTextCursor, QIcon
@@ -407,11 +407,16 @@ class MainWindow(QWidget):
                     json_data = None
             else:
                 data = raw_text
+        # 显示加载层
+        loading = LoadingDialog(self)
+        loading.show()
+        QApplication.processEvents()
         try:
             start = time.time()
             resp = requests.request(method, url, params=params, headers=headers, data=data, json=json_data, files=files)
             elapsed = int((time.time() - start) * 1000)
         except Exception as e:
+            loading.close()
             status = f'Error: {e}'
             body = ''
             headers_str = ''
@@ -423,6 +428,7 @@ class MainWindow(QWidget):
             editor.resp_body = body
             editor.resp_headers = headers_str
             return
+        loading.close()
         # 响应区展示
         status = f'{resp.status_code} {resp.reason}   {elapsed}ms   {len(resp.content)/1024:.2f}KB'
         try:
@@ -1274,3 +1280,20 @@ class RequestEditor(QWidget):
             QTimer.singleShot(2000, lambda: (copy_btn.setText('Copy to Clipboard'), copy_btn.setEnabled(True)))
         copy_btn.clicked.connect(do_copy)
         dlg.exec_() 
+
+# MainWindow类外部添加LoadingDialog
+class LoadingDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setModal(True)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignCenter)
+        self.label = QLabel('Loading...')
+        self.label.setAlignment(Qt.AlignCenter)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)  # 无限循环
+        layout.addWidget(self.progress)
+        layout.addWidget(self.label)
+        self.setFixedSize(200, 100) 
