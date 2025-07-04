@@ -154,8 +154,9 @@ class MainWindow(QWidget):
         status_row.addWidget(self.save_resp_btn)
         status_row.addWidget(self.clear_resp_btn)
         resp_body_layout.addLayout(status_row)
-        self.resp_body_edit = QTextEdit()
+        self.resp_body_edit = CodeEditor()
         self.resp_body_edit.setReadOnly(True)
+        self.resp_json_highlighter = JsonHighlighter(self.resp_body_edit.document())
         resp_body_layout.addWidget(self.resp_body_edit)
         resp_body_widget.setLayout(resp_body_layout)
         self.resp_tabs.addTab(resp_body_widget, 'Body')
@@ -432,12 +433,17 @@ class MainWindow(QWidget):
         # 响应区展示
         status = f'{resp.status_code} {resp.reason}   {elapsed}ms   {len(resp.content)/1024:.2f}KB'
         try:
+            content_type = resp.headers.get('Content-Type', '')
             body = resp.text
-            if 'application/json' in resp.headers.get('Content-Type', ''):
+            if 'application/json' in content_type:
                 obj = resp.json()
                 body = json.dumps(obj, ensure_ascii=False, indent=2)
+                self.resp_json_highlighter.setDocument(self.resp_body_edit.document())
+            else:
+                self.resp_json_highlighter.setDocument(None)
         except Exception:
             body = resp.text
+            self.resp_json_highlighter.setDocument(None)
         headers_str = '\n'.join(f'{k}: {v}' for k, v in resp.headers.items())
         self.resp_status_label.setText(status)
         self.resp_body_edit.setPlainText(body)
