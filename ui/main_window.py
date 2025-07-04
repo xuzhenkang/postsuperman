@@ -587,6 +587,9 @@ class MainWindow(QWidget):
             if not ok or not name.strip():
                 return
             name = name.strip()
+            if '*' in name:
+                QMessageBox.warning(self, '非法名称', '请求名称不能包含星号*字符！')
+                return
             # 检查重名（只在该集合下）
             for i in range(item.childCount()):
                 sibling = item.child(i)
@@ -602,6 +605,9 @@ class MainWindow(QWidget):
             if not ok or not name.strip():
                 return
             name = name.strip()
+            if '*' in name:
+                QMessageBox.warning(self, '非法名称', '请求名称不能包含星号*字符！')
+                return
             if item.parent() is None:
                 for i in range(self.collection_tree.topLevelItemCount()):
                     if self.collection_tree.topLevelItem(i) != item and self.collection_tree.topLevelItem(i).text(0) == name:
@@ -785,6 +791,13 @@ class MainWindow(QWidget):
             self.resp_tabs.widget(1).setPlainText('')
 
     def on_req_tab_closed(self, idx):
+        tab_text = self.req_tabs.tabText(idx)
+        # 通过Tab标签是否有*判断是否弹窗确认
+        if tab_text.endswith('*'):
+            from PyQt5.QtWidgets import QMessageBox
+            reply = QMessageBox.question(self, '未保存变更', '当前请求有未保存的更改，确定要关闭吗？', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                return  # 用户取消关闭
         self.req_tabs.removeTab(idx)
         # 如果没有Tab或当前Tab不是RequestEditor，清空响应区
         if self.req_tabs.count() == 0:
@@ -955,9 +968,107 @@ class MainWindow(QWidget):
                     raise ValueError('headers 字段格式错误，应为数组')
                 if not isinstance(req_data.get('params', []), list):
                     raise ValueError('params 字段格式错误，应为数组')
-                # 其余原有逻辑...
-                import_headers = [(h.get('key', ''), h.get('value', '')) for h in req_data.get('headers', [])]
-                # ... existing code ...
+                from PyQt5.QtWidgets import QMessageBox
+                choice = QMessageBox.question(self, '导入方式', '导入到当前Request还是新建Request导入？\n选择"是"将覆盖当前，选择"否"将新建Request导入。', QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, QMessageBox.Cancel)
+                if choice == QMessageBox.Cancel:
+                    return
+                mainwin = self.window()
+                from ui.main_window import RequestEditor
+                if choice == QMessageBox.Yes and hasattr(self, 'method_combo'):
+                    # 覆盖当前Request
+                    self.method_combo.setCurrentText(req_data.get('method', 'GET'))
+                    self.url_edit.setText(req_data.get('url', ''))
+                    # Params
+                    self.params_table.setRowCount(1)
+                    for i, param in enumerate(req_data.get('params', [])):
+                        if i >= self.params_table.rowCount()-1:
+                            self.params_table.insertRow(self.params_table.rowCount())
+                            self.add_table_row(self.params_table, self.params_table.rowCount()-1)
+                        self.params_table.setItem(i, 1, QTableWidgetItem(param.get('key', '')))
+                        self.params_table.setItem(i, 2, QTableWidgetItem(param.get('value', '')))
+                    # Headers
+                    self.headers_table.setRowCount(1)
+                    for i, h in enumerate(req_data.get('headers', [])):
+                        if i >= self.headers_table.rowCount()-1:
+                            self.headers_table.insertRow(self.headers_table.rowCount())
+                            self.add_table_row(self.headers_table, self.headers_table.rowCount()-1)
+                        self.headers_table.setItem(i, 1, QTableWidgetItem(h.get('key', '')))
+                        self.headers_table.setItem(i, 2, QTableWidgetItem(h.get('value', '')))
+                    self.refresh_table_widgets(self.headers_table)
+                    # Body
+                    body_type = req_data.get('body_type', 'none')
+                    if body_type == 'form-data':
+                        self.body_form_radio.setChecked(True)
+                        self.form_table.setRowCount(1)
+                        for i, item in enumerate(req_data.get('body', [])):
+                            if i >= self.form_table.rowCount()-1:
+                                self.form_table.insertRow(self.form_table.rowCount())
+                                self.add_table_row(self.form_table, self.form_table.rowCount()-1)
+                            self.form_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                            self.form_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                    elif body_type == 'x-www-form-urlencoded':
+                        self.body_url_radio.setChecked(True)
+                        self.url_table.setRowCount(1)
+                        for i, item in enumerate(req_data.get('body', [])):
+                            if i >= self.url_table.rowCount()-1:
+                                self.url_table.insertRow(self.url_table.rowCount())
+                                self.add_table_row(self.url_table, self.url_table.rowCount()-1)
+                            self.url_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                            self.url_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                    elif body_type == 'raw':
+                        self.body_raw_radio.setChecked(True)
+                        self.raw_text_edit.setPlainText(req_data.get('body', ''))
+                        self.raw_type_combo.setCurrentText(req_data.get('raw_type', 'JSON'))
+                    else:
+                        self.body_none_radio.setChecked(True)
+                elif choice == QMessageBox.No and hasattr(mainwin, 'req_tabs'):
+                    # 新建Request导入
+                    req_editor = RequestEditor(mainwin)
+                    req_editor.method_combo.setCurrentText(req_data.get('method', 'GET'))
+                    req_editor.url_edit.setText(req_data.get('url', ''))
+                    # Params
+                    req_editor.params_table.setRowCount(1)
+                    for i, param in enumerate(req_data.get('params', [])):
+                        if i >= req_editor.params_table.rowCount()-1:
+                            req_editor.params_table.insertRow(req_editor.params_table.rowCount())
+                        req_editor.params_table.setItem(i, 1, QTableWidgetItem(param.get('key', '')))
+                        req_editor.params_table.setItem(i, 2, QTableWidgetItem(param.get('value', '')))
+                    # Headers
+                    req_editor.headers_table.setRowCount(1)
+                    for i, h in enumerate(req_data.get('headers', [])):
+                        if i >= req_editor.headers_table.rowCount()-1:
+                            req_editor.headers_table.insertRow(req_editor.headers_table.rowCount())
+                            req_editor.add_table_row(req_editor.headers_table, req_editor.headers_table.rowCount()-1)
+                        req_editor.headers_table.setItem(i, 1, QTableWidgetItem(h.get('key', '')))
+                        req_editor.headers_table.setItem(i, 2, QTableWidgetItem(h.get('value', '')))
+                    req_editor.refresh_table_widgets(req_editor.headers_table)
+                    # Body
+                    body_type = req_data.get('body_type', 'none')
+                    if body_type == 'form-data':
+                        req_editor.body_form_radio.setChecked(True)
+                        req_editor.form_table.setRowCount(1)
+                        for i, item in enumerate(req_data.get('body', [])):
+                            if i >= req_editor.form_table.rowCount()-1:
+                                req_editor.form_table.insertRow(req_editor.form_table.rowCount())
+                            req_editor.form_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                            req_editor.form_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                    elif body_type == 'x-www-form-urlencoded':
+                        req_editor.body_url_radio.setChecked(True)
+                        req_editor.url_table.setRowCount(1)
+                        for i, item in enumerate(req_data.get('body', [])):
+                            if i >= req_editor.url_table.rowCount()-1:
+                                req_editor.url_table.insertRow(req_editor.url_table.rowCount())
+                            req_editor.url_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                            req_editor.url_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                    elif body_type == 'raw':
+                        req_editor.body_raw_radio.setChecked(True)
+                        req_editor.raw_text_edit.setPlainText(req_data.get('body', ''))
+                        req_editor.raw_type_combo.setCurrentText(req_data.get('raw_type', 'JSON'))
+                    else:
+                        req_editor.body_none_radio.setChecked(True)
+                    mainwin.req_tabs.addTab(req_editor, 'Imported Request')
+                    mainwin.req_tabs.setCurrentWidget(req_editor)
+                dlg.accept()
             except Exception as e:
                 from PyQt5.QtWidgets import QMessageBox
                 QMessageBox.warning(self, '导入失败', f'导入内容格式错误: {e}')
@@ -1869,9 +1980,107 @@ class RequestEditor(QWidget):
                     raise ValueError('headers 字段格式错误，应为数组')
                 if not isinstance(req_data.get('params', []), list):
                     raise ValueError('params 字段格式错误，应为数组')
-                # 其余原有逻辑...
-                import_headers = [(h.get('key', ''), h.get('value', '')) for h in req_data.get('headers', [])]
-                # ... existing code ...
+                from PyQt5.QtWidgets import QMessageBox
+                choice = QMessageBox.question(self, '导入方式', '导入到当前Request还是新建Request导入？\n选择"是"将覆盖当前，选择"否"将新建Request导入。', QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, QMessageBox.Cancel)
+                if choice == QMessageBox.Cancel:
+                    return
+                mainwin = self.window()
+                from ui.main_window import RequestEditor
+                if choice == QMessageBox.Yes and hasattr(self, 'method_combo'):
+                    # 覆盖当前Request
+                    self.method_combo.setCurrentText(req_data.get('method', 'GET'))
+                    self.url_edit.setText(req_data.get('url', ''))
+                    # Params
+                    self.params_table.setRowCount(1)
+                    for i, param in enumerate(req_data.get('params', [])):
+                        if i >= self.params_table.rowCount()-1:
+                            self.params_table.insertRow(self.params_table.rowCount())
+                            self.add_table_row(self.params_table, self.params_table.rowCount()-1)
+                        self.params_table.setItem(i, 1, QTableWidgetItem(param.get('key', '')))
+                        self.params_table.setItem(i, 2, QTableWidgetItem(param.get('value', '')))
+                    # Headers
+                    self.headers_table.setRowCount(1)
+                    for i, h in enumerate(req_data.get('headers', [])):
+                        if i >= self.headers_table.rowCount()-1:
+                            self.headers_table.insertRow(self.headers_table.rowCount())
+                            self.add_table_row(self.headers_table, self.headers_table.rowCount()-1)
+                        self.headers_table.setItem(i, 1, QTableWidgetItem(h.get('key', '')))
+                        self.headers_table.setItem(i, 2, QTableWidgetItem(h.get('value', '')))
+                    self.refresh_table_widgets(self.headers_table)
+                    # Body
+                    body_type = req_data.get('body_type', 'none')
+                    if body_type == 'form-data':
+                        self.body_form_radio.setChecked(True)
+                        self.form_table.setRowCount(1)
+                        for i, item in enumerate(req_data.get('body', [])):
+                            if i >= self.form_table.rowCount()-1:
+                                self.form_table.insertRow(self.form_table.rowCount())
+                                self.add_table_row(self.form_table, self.form_table.rowCount()-1)
+                            self.form_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                            self.form_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                    elif body_type == 'x-www-form-urlencoded':
+                        self.body_url_radio.setChecked(True)
+                        self.url_table.setRowCount(1)
+                        for i, item in enumerate(req_data.get('body', [])):
+                            if i >= self.url_table.rowCount()-1:
+                                self.url_table.insertRow(self.url_table.rowCount())
+                                self.add_table_row(self.url_table, self.url_table.rowCount()-1)
+                            self.url_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                            self.url_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                    elif body_type == 'raw':
+                        self.body_raw_radio.setChecked(True)
+                        self.raw_text_edit.setPlainText(req_data.get('body', ''))
+                        self.raw_type_combo.setCurrentText(req_data.get('raw_type', 'JSON'))
+                    else:
+                        self.body_none_radio.setChecked(True)
+                elif choice == QMessageBox.No and hasattr(mainwin, 'req_tabs'):
+                    # 新建Request导入
+                    req_editor = RequestEditor(mainwin)
+                    req_editor.method_combo.setCurrentText(req_data.get('method', 'GET'))
+                    req_editor.url_edit.setText(req_data.get('url', ''))
+                    # Params
+                    req_editor.params_table.setRowCount(1)
+                    for i, param in enumerate(req_data.get('params', [])):
+                        if i >= req_editor.params_table.rowCount()-1:
+                            req_editor.params_table.insertRow(req_editor.params_table.rowCount())
+                        req_editor.params_table.setItem(i, 1, QTableWidgetItem(param.get('key', '')))
+                        req_editor.params_table.setItem(i, 2, QTableWidgetItem(param.get('value', '')))
+                    # Headers
+                    req_editor.headers_table.setRowCount(1)
+                    for i, h in enumerate(req_data.get('headers', [])):
+                        if i >= req_editor.headers_table.rowCount()-1:
+                            req_editor.headers_table.insertRow(req_editor.headers_table.rowCount())
+                            req_editor.add_table_row(req_editor.headers_table, req_editor.headers_table.rowCount()-1)
+                        req_editor.headers_table.setItem(i, 1, QTableWidgetItem(h.get('key', '')))
+                        req_editor.headers_table.setItem(i, 2, QTableWidgetItem(h.get('value', '')))
+                    req_editor.refresh_table_widgets(req_editor.headers_table)
+                    # Body
+                    body_type = req_data.get('body_type', 'none')
+                    if body_type == 'form-data':
+                        req_editor.body_form_radio.setChecked(True)
+                        req_editor.form_table.setRowCount(1)
+                        for i, item in enumerate(req_data.get('body', [])):
+                            if i >= req_editor.form_table.rowCount()-1:
+                                req_editor.form_table.insertRow(req_editor.form_table.rowCount())
+                            req_editor.form_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                            req_editor.form_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                    elif body_type == 'x-www-form-urlencoded':
+                        req_editor.body_url_radio.setChecked(True)
+                        req_editor.url_table.setRowCount(1)
+                        for i, item in enumerate(req_data.get('body', [])):
+                            if i >= req_editor.url_table.rowCount()-1:
+                                req_editor.url_table.insertRow(req_editor.url_table.rowCount())
+                            req_editor.url_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                            req_editor.url_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                    elif body_type == 'raw':
+                        req_editor.body_raw_radio.setChecked(True)
+                        req_editor.raw_text_edit.setPlainText(req_data.get('body', ''))
+                        req_editor.raw_type_combo.setCurrentText(req_data.get('raw_type', 'JSON'))
+                    else:
+                        req_editor.body_none_radio.setChecked(True)
+                    mainwin.req_tabs.addTab(req_editor, 'Imported Request')
+                    mainwin.req_tabs.setCurrentWidget(req_editor)
+                dlg.accept()
             except Exception as e:
                 from PyQt5.QtWidgets import QMessageBox
                 QMessageBox.warning(self, '导入失败', f'导入内容格式错误: {e}')
