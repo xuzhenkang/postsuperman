@@ -199,6 +199,7 @@ class MainWindow(QWidget):
         self.req_tabs.tabCloseRequested.connect(self.on_req_tab_closed)
         self.save_resp_btn.clicked.connect(self.save_response_to_file)
         self.clear_resp_btn.clicked.connect(self.clear_response)
+        self.collection_tree.itemClicked.connect(self.on_collection_item_clicked)
 
     def init_table(self, table):
         table.setColumnCount(5)
@@ -657,10 +658,10 @@ class MainWindow(QWidget):
                         return
             item.setText(0, name)
             # 重命名后保持图标
-            if item.parent() is None:
-                item.setIcon(0, self.folder_icon)
-            else:
+            if item.childCount() == 0:
                 item.setIcon(0, self.file_icon)
+            else:
+                item.setIcon(0, self.folder_icon)
         elif delete_action and action == delete_action:
             if item.parent() is None:
                 reply = QMessageBox.question(self, '删除集合', f'确定要删除集合"{item.text(0)}"吗？', QMessageBox.Yes | QMessageBox.No)
@@ -802,6 +803,21 @@ class MainWindow(QWidget):
 
     def on_req_tab_changed(self, idx):
         editor = self.req_tabs.widget(idx)
+        # 同步左侧树选中
+        mainwin = self if hasattr(self, 'collection_tree') else self.window()
+        if hasattr(mainwin, 'collection_tree'):
+            tab_name = self.req_tabs.tabText(idx).rstrip('*')
+            def find_and_select(item):
+                if item.childCount() == 0 and item.text(0) == tab_name:
+                    mainwin.collection_tree.setCurrentItem(item)
+                    return True
+                for i in range(item.childCount()):
+                    if find_and_select(item.child(i)):
+                        return True
+                return False
+            for i in range(mainwin.collection_tree.topLevelItemCount()):
+                if find_and_select(mainwin.collection_tree.topLevelItem(i)):
+                    break
         if hasattr(editor, 'resp_status'):
             self.resp_status_label.setText(editor.resp_status)
             self.resp_body_edit.setPlainText(editor.resp_body)
@@ -1028,31 +1044,33 @@ class MainWindow(QWidget):
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             self._unsaved_changes = False
-            from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.information(self, 'Save All', '全部已保存')
         except Exception as e:
             from PyQt5.QtWidgets import QMessageBox
             QMessageBox.warning(self, 'Save Failed', f'保存失败: {e}')
 
     def serialize_collections(self):
-        # 遍历self.collection_tree，收集所有集合和请求内容
+        from PyQt5.QtCore import Qt
         def serialize_item(item):
             if item.childCount() == 0:  # request
-                req_widget = self.find_request_by_name(item.text(0))
+                req_data = item.data(0, Qt.UserRole)
+                if not req_data:
+                    return None  # 未保存的request不导出
                 return {
                     'name': item.text(0),
                     'type': 'request',
-                    'request': req_widget and req_widget.serialize_request()
+                    'request': req_data
                 }
             else:
                 return {
                     'name': item.text(0),
                     'type': 'collection',
-                    'children': [serialize_item(item.child(i)) for i in range(item.childCount())]
+                    'children': [x for x in (serialize_item(item.child(i)) for i in range(item.childCount())) if x]
                 }
         data = []
         for i in range(self.collection_tree.topLevelItemCount()):
-            data.append(serialize_item(self.collection_tree.topLevelItem(i)))
+            node = serialize_item(self.collection_tree.topLevelItem(i))
+            if node:
+                data.append(node)
         return data
 
     def find_request_by_name(self, name):
@@ -1076,15 +1094,76 @@ class MainWindow(QWidget):
 
     def populate_collections(self, data):
         self.collection_tree.clear()
+        from PyQt5.QtCore import Qt
         def add_items(parent, nodes):
             for node in nodes:
                 item = QTreeWidgetItem(parent, [node['name']])
                 if node.get('type') == 'collection':
                     item.setIcon(0, self.folder_icon)
-                    add_items(item, node.get('children', []))
-                elif node.get('type') == 'request':
+                    add_items(item, node.get('children', []) or [])
+                if node.get('type') == 'request':
                     item.setIcon(0, self.file_icon)
+                    item.setData(0, Qt.UserRole, node.get('request', {}))
         add_items(self.collection_tree, data)
+
+    def on_collection_item_clicked(self, item, column):
+        # 判断是否为Request节点
+        if item.childCount() == 0 and item.parent() is not None and item.icon(0).cacheKey() == self.file_icon.cacheKey():
+            name = item.text(0)
+            for i in range(self.req_tabs.count()):
+                if self.req_tabs.tabText(i) == name:
+                    self.req_tabs.setCurrentIndex(i)
+                    return
+            req_data = self.get_request_data_from_tree(item)
+            req_editor = RequestEditor(self, req_name=name)
+            if req_data:
+                req_editor.method_combo.setCurrentText(req_data.get('method', 'GET'))
+                req_editor.url_edit.setText(req_data.get('url', ''))
+                # Params
+                req_editor.params_table.setRowCount(1)
+                for i, param in enumerate(req_data.get('params', [])):
+                    if i >= req_editor.params_table.rowCount()-1:
+                        req_editor.params_table.insertRow(req_editor.params_table.rowCount())
+                        req_editor.add_table_row(req_editor.params_table, req_editor.params_table.rowCount()-1)
+                    req_editor.params_table.setItem(i, 1, QTableWidgetItem(param.get('key', '')))
+                    req_editor.params_table.setItem(i, 2, QTableWidgetItem(param.get('value', '')))
+                # Headers
+                req_editor.headers_table.setRowCount(1)
+                for i, h in enumerate(req_data.get('headers', [])):
+                    if i >= req_editor.headers_table.rowCount()-1:
+                        req_editor.headers_table.insertRow(req_editor.headers_table.rowCount())
+                        req_editor.add_table_row(req_editor.headers_table, req_editor.headers_table.rowCount()-1)
+                    req_editor.headers_table.setItem(i, 1, QTableWidgetItem(h.get('key', '')))
+                    req_editor.headers_table.setItem(i, 2, QTableWidgetItem(h.get('value', '')))
+                req_editor.refresh_table_widgets(req_editor.headers_table)
+                # Body
+                body_type = req_data.get('body_type', 'none')
+                if body_type == 'form-data':
+                    req_editor.body_form_radio.setChecked(True)
+                    req_editor.form_table.setRowCount(1)
+                    for i, item in enumerate(req_data.get('body', [])):
+                        if i >= req_editor.form_table.rowCount()-1:
+                            req_editor.form_table.insertRow(req_editor.form_table.rowCount())
+                            req_editor.add_table_row(req_editor.form_table, req_editor.form_table.rowCount()-1)
+                        req_editor.form_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                        req_editor.form_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                elif body_type == 'x-www-form-urlencoded':
+                    req_editor.body_url_radio.setChecked(True)
+                    req_editor.url_table.setRowCount(1)
+                    for i, item in enumerate(req_data.get('body', [])):
+                        if i >= req_editor.url_table.rowCount()-1:
+                            req_editor.url_table.insertRow(req_editor.url_table.rowCount())
+                            req_editor.add_table_row(req_editor.url_table, req_editor.url_table.rowCount()-1)
+                        req_editor.url_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                        req_editor.url_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                elif body_type == 'raw':
+                    req_editor.body_raw_radio.setChecked(True)
+                    req_editor.raw_text_edit.setPlainText(req_data.get('body', ''))
+                    req_editor.raw_type_combo.setCurrentText(req_data.get('raw_type', 'JSON'))
+                else:
+                    req_editor.body_none_radio.setChecked(True)
+            self.req_tabs.addTab(req_editor, name)
+            self.req_tabs.setCurrentWidget(req_editor)
 
 class JsonHighlighter(QSyntaxHighlighter):
     def __init__(self, parent=None):
@@ -1314,9 +1393,11 @@ class RequestEditor(QWidget):
         self.code_btn = QPushButton('Code')
         self.import_btn = QPushButton('Import')
         self.save_btn = QPushButton('Export Current Request')
+        self.save_to_tree_btn = QPushButton('Save')
         code_import_row.addWidget(self.code_btn)
         code_import_row.addWidget(self.import_btn)
         code_import_row.addWidget(self.save_btn)
+        code_import_row.addWidget(self.save_to_tree_btn)
         self.layout.addLayout(code_import_row)
         # Params表格
         self.params_table = QTableWidget()
@@ -1418,10 +1499,82 @@ class RequestEditor(QWidget):
         self.save_btn.clicked.connect(self.on_save_clicked)
         self.import_btn.clicked.connect(self.on_import_clicked)
         self.code_btn.clicked.connect(self.on_code_clicked)
+        self.save_to_tree_btn.clicked.connect(self.save_to_tree)
         # 添加响应内容属性
         self.resp_status = ''
         self.resp_body = ''
         self.resp_headers = ''
+
+        for widget in [self.method_combo, self.url_edit, self.params_table, self.headers_table, self.form_table, self.url_table, self.raw_text_edit]:
+            if hasattr(widget, 'textChanged'):
+                widget.textChanged.connect(self.mark_dirty)
+            elif hasattr(widget, 'currentTextChanged'):
+                widget.currentTextChanged.connect(self.mark_dirty)
+            elif hasattr(widget, 'cellChanged'):
+                widget.cellChanged.connect(lambda *_: self.mark_dirty())
+
+    def mark_dirty(self):
+        mainwin = self.window()
+        if hasattr(mainwin, 'req_tabs'):
+            idx = mainwin.req_tabs.indexOf(self)
+            if idx >= 0 and not mainwin.req_tabs.tabText(idx).endswith('*'):
+                mainwin.req_tabs.setTabText(idx, mainwin.req_tabs.tabText(idx) + '*')
+        self._dirty = True
+
+    def save_to_tree(self):
+        from PyQt5.QtCore import Qt
+        mainwin = self.window()
+        if hasattr(mainwin, 'collection_tree'):
+            sel = mainwin.collection_tree.currentItem()
+            if sel and sel.childCount() == 0:
+                name = sel.text(0)
+                idx = mainwin.req_tabs.indexOf(self)
+                if idx >= 0:
+                    mainwin.req_tabs.setTabText(idx, name)
+                # 保存内容到树节点
+                sel.setData(0, Qt.UserRole, self.serialize_request())
+            else:
+                from PyQt5.QtWidgets import QTreeWidgetItem
+                name = self.url_edit.text() or 'New Request'
+                item = QTreeWidgetItem([name])
+                item.setIcon(0, mainwin.file_icon)
+                item.setData(0, Qt.UserRole, self.serialize_request())
+                mainwin.collection_tree.addTopLevelItem(item)
+                idx = mainwin.req_tabs.indexOf(self)
+                if idx >= 0:
+                    mainwin.req_tabs.setTabText(idx, name)
+            idx = mainwin.req_tabs.indexOf(self)
+            if idx >= 0:
+                t = mainwin.req_tabs.tabText(idx)
+                if t.endswith('*'):
+                    mainwin.req_tabs.setTabText(idx, t[:-1])
+        self._dirty = False
+        mainwin.save_all()
+
+    def serialize_collections(self):
+        from PyQt5.QtCore import Qt
+        def serialize_item(item):
+            if item.childCount() == 0:  # request
+                req_data = item.data(0, Qt.UserRole)
+                if not req_data:
+                    return None  # 未保存的request不导出
+                return {
+                    'name': item.text(0),
+                    'type': 'request',
+                    'request': req_data
+                }
+            else:
+                return {
+                    'name': item.text(0),
+                    'type': 'collection',
+                    'children': [x for x in (serialize_item(item.child(i)) for i in range(item.childCount())) if x]
+                }
+        data = []
+        for i in range(self.collection_tree.topLevelItemCount()):
+            node = serialize_item(self.collection_tree.topLevelItem(i))
+            if node:
+                data.append(node)
+        return data
 
     def refresh_table_widgets(self, table):
         for r in range(table.rowCount()):
