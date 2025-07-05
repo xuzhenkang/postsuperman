@@ -33,6 +33,7 @@ def build_exe():
         "--name=postsuperman_v1.0.0",  # 设置exe文件名
         "--icon=ui/app.ico",  # 设置图标（如果有的话）
         "--add-data=requirements.txt;.",  # 包含requirements.txt
+        "--add-data=ui/app.ico;.",  # 将图标文件作为数据文件包含
         "--clean",  # 清理临时文件
         "main.py"  # 主程序文件
     ]
@@ -41,17 +42,8 @@ def build_exe():
         subprocess.check_call(cmd)
         print("exe文件构建成功！")
         
-        # 手动复制必要的文件到dist目录
-        import shutil
-        dist_dir = "dist"
-        if not os.path.exists(dist_dir):
-            os.makedirs(dist_dir)
-            
-        # 复制图标文件
-        if os.path.exists("ui/app.ico"):
-            shutil.copy2("ui/app.ico", os.path.join(dist_dir, "app.ico"))
-            print("图标文件复制成功！")
-            
+        # 图标文件已经通过--icon参数嵌入到exe中，无需额外处理
+        print("图标文件已嵌入到exe中！")
         return True
     except subprocess.CalledProcessError as e:
         print(f"构建失败: {e}")
@@ -69,7 +61,7 @@ def create_icon():
 
 def main():
     """主函数"""
-    print("=== 长文本二维码生成器 - 打包工具 ===")
+    print("=== postsuperman - 打包工具 ===")
 
     # 检查Python版本
     if sys.version_info < (3, 6):

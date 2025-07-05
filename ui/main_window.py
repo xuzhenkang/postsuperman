@@ -21,8 +21,7 @@ app.setWindowIcon(QIcon('ui/app.ico'))  # 路径根据实际文件调整
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
-        import json, os
-        # 获取工作目录，兼容打包后的exe文件
+        # collections.json与main.py同级
         self._workspace_dir = self.get_workspace_dir()
         self._unsaved_changes = False
         self.setWindowTitle('postsuperman')
@@ -30,7 +29,35 @@ class MainWindow(QWidget):
         self._req_thread = None
         self._req_worker = None
         self._current_editor = None
+
+        # 设置应用图标
+        if getattr(sys, 'frozen', False):
+            # 打包后，从临时目录加载图标文件
+            try:
+                # 获取临时目录中的图标文件路径
+                if hasattr(sys, '_MEIPASS'):
+                    # PyInstaller临时目录
+                    icon_path = os.path.join(sys._MEIPASS, 'app.ico')
+                    if os.path.exists(icon_path):
+                        app_icon = QIcon(icon_path)
+                    else:
+                        app_icon = QApplication.style().standardIcon(QStyle.SP_ComputerIcon)
+                else:
+                    app_icon = QApplication.style().standardIcon(QStyle.SP_ComputerIcon)
+            except:
+                app_icon = QApplication.style().standardIcon(QStyle.SP_ComputerIcon)
+        else:
+            # 开发环境，使用外部图标文件
+            icon_path = os.path.join(os.path.dirname(__file__), 'app.ico')
+            if os.path.exists(icon_path):
+                app_icon = QIcon(icon_path)
+            else:
+                app_icon = QApplication.style().standardIcon(QStyle.SP_ComputerIcon)
         
+        QApplication.setWindowIcon(app_icon)
+        self.setWindowIcon(app_icon)
+        self._app_icon = app_icon  # 供欢迎页等处使用
+
         # 初始化日志系统
         self.init_logging()
         
@@ -39,9 +66,6 @@ class MainWindow(QWidget):
 
     def get_workspace_dir(self):
         """获取工作目录，兼容开发环境和打包后的exe文件"""
-        import sys
-        import os
-        
         # 如果是打包后的exe文件
         if getattr(sys, 'frozen', False):
             # 使用exe文件所在目录
@@ -52,13 +76,10 @@ class MainWindow(QWidget):
 
     def get_icon_path(self):
         """获取图标文件路径，兼容开发环境和打包后的exe文件"""
-        import sys
-        import os
-        
         # 如果是打包后的exe文件
         if getattr(sys, 'frozen', False):
-            # 打包后图标应该在exe同级目录
-            return os.path.join(os.path.dirname(sys.executable), 'app.ico')
+            # 打包后图标已经嵌入到exe中，使用内置图标
+            return None  # 返回None表示使用内置图标
         else:
             # 开发环境，使用ui目录下的图标
             return os.path.join(os.path.dirname(__file__), 'app.ico')
@@ -178,12 +199,7 @@ class MainWindow(QWidget):
         
         # 添加应用图标
         icon_label = QLabel()
-        icon_path = self.get_icon_path()
-        if os.path.exists(icon_path):
-            icon_pixmap = QIcon(icon_path).pixmap(128, 128)  # 128x128像素
-        else:
-            # 如果图标文件不存在，使用默认图标
-            icon_pixmap = QApplication.style().standardIcon(QStyle.SP_ComputerIcon).pixmap(128, 128)
+        icon_pixmap = self._app_icon.pixmap(128, 128)
         icon_label.setPixmap(icon_pixmap)
         icon_label.setAlignment(Qt.AlignCenter)
         welcome_vbox.addWidget(icon_label)
@@ -1166,7 +1182,7 @@ Version: 1.0.0'''
                 
                 # 添加应用图标
                 icon_label = QLabel()
-                icon_pixmap = QIcon('ui/app.ico').pixmap(128, 128)  # 128x128像素
+                icon_pixmap = self._app_icon.pixmap(128, 128)
                 icon_label.setPixmap(icon_pixmap)
                 icon_label.setAlignment(Qt.AlignCenter)
                 welcome_vbox.addWidget(icon_label)
