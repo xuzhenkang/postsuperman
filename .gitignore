@@ -1,0 +1,16 @@
+venv/
+dist/
+build/
+*.spec
+*.log
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+*.pywz
+*.pyzw
+*.pyzwz
+*/__pycache__/
+user-data/
+collections.json

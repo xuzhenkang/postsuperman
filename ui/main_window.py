@@ -22,8 +22,8 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         import json, os
-        # collections.json与main.py同级
-        self._workspace_dir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+        # 获取工作目录，兼容打包后的exe文件
+        self._workspace_dir = self.get_workspace_dir()
         self._unsaved_changes = False
         self.setWindowTitle('postsuperman')
         self.resize(1440, 900)
@@ -36,6 +36,32 @@ class MainWindow(QWidget):
         
         self.init_ui()
         self.load_collections()
+
+    def get_workspace_dir(self):
+        """获取工作目录，兼容开发环境和打包后的exe文件"""
+        import sys
+        import os
+        
+        # 如果是打包后的exe文件
+        if getattr(sys, 'frozen', False):
+            # 使用exe文件所在目录
+            return os.path.dirname(sys.executable)
+        else:
+            # 开发环境，使用main.py同级目录
+            return os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+
+    def get_icon_path(self):
+        """获取图标文件路径，兼容开发环境和打包后的exe文件"""
+        import sys
+        import os
+        
+        # 如果是打包后的exe文件
+        if getattr(sys, 'frozen', False):
+            # 打包后图标应该在exe同级目录
+            return os.path.join(os.path.dirname(sys.executable), 'app.ico')
+        else:
+            # 开发环境，使用ui目录下的图标
+            return os.path.join(os.path.dirname(__file__), 'app.ico')
 
     def init_ui(self):
         main_layout = QVBoxLayout(self)
@@ -152,7 +178,12 @@ class MainWindow(QWidget):
         
         # 添加应用图标
         icon_label = QLabel()
-        icon_pixmap = QIcon('ui/app.ico').pixmap(128, 128)  # 128x128像素
+        icon_path = self.get_icon_path()
+        if os.path.exists(icon_path):
+            icon_pixmap = QIcon(icon_path).pixmap(128, 128)  # 128x128像素
+        else:
+            # 如果图标文件不存在，使用默认图标
+            icon_pixmap = QApplication.style().standardIcon(QStyle.SP_ComputerIcon).pixmap(128, 128)
         icon_label.setPixmap(icon_pixmap)
         icon_label.setAlignment(Qt.AlignCenter)
         welcome_vbox.addWidget(icon_label)
