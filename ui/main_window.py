@@ -93,15 +93,18 @@ class MainWindow(QWidget):
         menubar = QMenuBar(self)
         file_menu = menubar.addMenu('File')
         new_request_action = QAction('New Request', self)
+        open_collection_action = QAction('Open Collection', self)
         save_all_action = QAction('Save All', self)
         exit_action = QAction('Exit', self)
         file_menu.addAction(new_request_action)
+        file_menu.addAction(open_collection_action)
         file_menu.addSeparator()
         file_menu.addAction(save_all_action)
         file_menu.addSeparator()
         file_menu.addAction(exit_action)
         # self.setMenuBar(menubar)  # <-- 删除这行
         new_request_action.triggered.connect(self.create_new_request)
+        open_collection_action.triggered.connect(self.open_collection)
         save_all_action.triggered.connect(self.save_all)
         help_menu = QMenu('Help', self)
         about_action = QAction('About', self)
@@ -154,11 +157,8 @@ class MainWindow(QWidget):
         collections_layout.setSpacing(4)
         btn_row = QHBoxLayout()
         self.new_collection_btn = QPushButton('New Collection')
-        self.new_collection_btn.setToolTip('新建一个请求集合')
+        self.new_collection_btn.setToolTip('Create a new request collection')
         btn_row.addWidget(self.new_collection_btn)
-        self.import_collection_btn = QPushButton('Import Collection')
-        self.import_collection_btn.setToolTip('导入请求集合')
-        btn_row.addWidget(self.import_collection_btn)
         btn_row.addStretch()
         collections_layout.addLayout(btn_row)
         self.collection_tree = QTreeWidget()
@@ -169,9 +169,9 @@ class MainWindow(QWidget):
         self.collection_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.collection_tree.dropEvent = self.collection_drop_event_only_top_level
         collections_layout.addWidget(self.collection_tree)
-        root = QTreeWidgetItem(self.collection_tree, ['默认集合'])
+        root = QTreeWidgetItem(self.collection_tree, ['Default Collection'])
         root.setIcon(0, self.folder_icon)
-        demo_req = QTreeWidgetItem(root, ['GET 示例请求'])
+        demo_req = QTreeWidgetItem(root, ['GET Example Request'])
         demo_req.setIcon(0, self.file_icon)
         self.left_tab.addTab(collections_panel, 'Collections')
         # Environments Tab
@@ -203,7 +203,7 @@ class MainWindow(QWidget):
         welcome_vbox.addWidget(icon_label)
         
         # 欢迎文本
-        welcome_label = QLabel('欢迎使用 postsuperman！\n\n点击左侧集合或新建请求，开始你的 API 调试之旅。\n\n支持多标签、参数/头/体编辑、cURL 导入、响应高亮、集合管理等丰富功能。')
+        welcome_label = QLabel('Welcome to postsuperman!\n\nClick on collections or create new requests to start your API debugging journey.\n\nSupports multi-tabs, parameter/header/body editing, cURL import, response highlighting, collection management and other rich features.')
         welcome_label.setAlignment(Qt.AlignCenter)
         welcome_label.setStyleSheet('font-size: 18px; color: #666; line-height: 1.5;')
         welcome_vbox.addWidget(welcome_label)
@@ -214,7 +214,6 @@ class MainWindow(QWidget):
         main_layout.addWidget(splitter) 
 
         self.new_collection_btn.clicked.connect(self.create_collection)
-        self.import_collection_btn.clicked.connect(self.import_collection)
         self.collection_tree.customContextMenuRequested.connect(self.show_collection_menu)
         self.collection_tree.itemDoubleClicked.connect(self.on_collection_item_double_clicked)
 
@@ -1085,6 +1084,99 @@ Version: 1.0.0'''
         self.req_tabs.setCurrentWidget(req_editor)
         self.log_info('Create new request from File menu')
 
+    def open_collection(self):
+        """从File菜单打开集合文件"""
+        from PyQt5.QtWidgets import QFileDialog, QMessageBox
+        import json
+        
+        # 打开文件对话框
+        fname, _ = QFileDialog.getOpenFileName(
+            self, 
+            'Open Collection', 
+            '', 
+            'JSON Files (*.json);;All Files (*)'
+        )
+        
+        if not fname:
+            return
+            
+        try:
+            # 读取JSON文件
+            with open(fname, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # 验证数据格式
+            if not isinstance(data, list):
+                raise ValueError('Collection file must contain a list of collections')
+            
+            # 询问用户是否要合并到现有集合或替换
+            choice = QMessageBox.question(
+                self, 
+                'Open Collection', 
+                'Do you want to merge with existing collections or replace them?\n\n'
+                'Yes = Merge with existing\n'
+                'No = Replace existing',
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+                QMessageBox.Yes
+            )
+            
+            if choice == QMessageBox.Cancel:
+                return
+            elif choice == QMessageBox.No:
+                # 替换现有集合
+                self.collection_tree.clear()
+                self.populate_collections(data)
+                self.log_info(f'Replace collections with: {fname}')
+            else:
+                # 合并到现有集合
+                self.merge_collections(data)
+                self.log_info(f'Merge collections from: {fname}')
+            
+            # 保存到collections.json
+            self.save_all()
+            
+            QMessageBox.information(
+                self, 
+                'Success', 
+                f'Successfully loaded collection from: {fname}'
+            )
+            
+        except FileNotFoundError:
+            QMessageBox.warning(self, 'Error', 'File not found!')
+            self.log_error(f'Open collection failed: File not found - {fname}')
+        except json.JSONDecodeError as e:
+            QMessageBox.warning(self, 'Error', f'Invalid JSON format: {e}')
+            self.log_error(f'Open collection failed: Invalid JSON - {e}')
+        except Exception as e:
+            QMessageBox.warning(self, 'Error', f'Failed to load collection: {e}')
+            self.log_error(f'Open collection failed: {e}')
+
+    def merge_collections(self, new_data):
+        """合并新集合到现有集合"""
+        from PyQt5.QtCore import Qt
+        
+        def add_collection_to_tree(parent, collection_data):
+            """递归添加集合到树中"""
+            for item in collection_data:
+                if item.get('type') == 'collection':
+                    # 创建集合节点
+                    collection_item = QTreeWidgetItem(parent, [item['name']])
+                    collection_item.setIcon(0, self.folder_icon)
+                    
+                    # 递归添加子项
+                    if 'children' in item:
+                        add_collection_to_tree(collection_item, item['children'])
+                        
+                elif item.get('type') == 'request':
+                    # 创建请求节点
+                    request_item = QTreeWidgetItem(parent, [item['name']])
+                    request_item.setIcon(0, self.file_icon)
+                    if 'request' in item:
+                        request_item.setData(0, Qt.UserRole, item['request'])
+        
+        # 添加到根节点
+        add_collection_to_tree(self.collection_tree, new_data)
+
     def create_collection(self):
         from PyQt5.QtWidgets import QInputDialog, QMessageBox
         name, ok = QInputDialog.getText(self, 'New Collection', 'Enter collection name:')
@@ -1102,7 +1194,6 @@ Version: 1.0.0'''
             return
         item = QTreeWidgetItem(self.collection_tree, [name])
         item.setIcon(0, self.folder_icon)
-        QTreeWidgetItem(item, ['GET Example Request'])
         # 新建后立即保存到collections.json
         self.save_all()
         self.log_info(f'Create Collection: "{name}"')
@@ -1110,9 +1201,8 @@ Version: 1.0.0'''
     def show_collection_menu(self, pos):
         from PyQt5.QtWidgets import QMenu, QMessageBox, QInputDialog
         item = self.collection_tree.itemAt(pos)
-        if not item:
-            return  # 空白处不弹菜单
         menu = QMenu(self)
+        
         # 判断节点类型
         def is_request(item):
             return (
@@ -1123,14 +1213,20 @@ Version: 1.0.0'''
             )
         def is_collection(item):
             return item is not None and not is_request(item)
+        
         # 菜单生成
-        if is_collection(item):
+        if item is None:
+            # 空白处右键菜单
+            new_collection_action = menu.addAction('New Collection')
+        elif is_collection(item):
+            # Collection节点右键菜单
             new_collection_action = menu.addAction('New Collection')
             new_req_action = menu.addAction('New Request')
             menu.addSeparator()
             rename_action = menu.addAction('Rename')
             delete_action = menu.addAction('Delete')
         elif is_request(item):
+            # Request节点右键菜单
             new_collection_action = None
             rename_action = menu.addAction('Rename')
             delete_action = menu.addAction('Delete')
@@ -1139,7 +1235,32 @@ Version: 1.0.0'''
             rename_action = None
             delete_action = None
         action = menu.exec_(self.collection_tree.viewport().mapToGlobal(pos))
-        if new_collection_action and action == new_collection_action:
+        
+        # 处理空白处的New Collection
+        if item is None and action and action.text() == 'New Collection':
+            from PyQt5.QtWidgets import QInputDialog, QMessageBox
+            name, ok = QInputDialog.getText(self, 'New Collection', 'Enter collection name:')
+            if not ok or not name.strip():
+                return
+            name = name.strip()
+            def is_duplicate(tree, name):
+                for i in range(tree.topLevelItemCount()):
+                    if tree.topLevelItem(i).text(0) == name:
+                        return True
+                return False
+            if is_duplicate(self.collection_tree, name):
+                self.log_warning(f'Create Collection failed: A collection named "{name}" already exists')
+                QMessageBox.warning(self, 'Create Failed', f'A collection named "{name}" already exists!')
+                return
+            item = QTreeWidgetItem(self.collection_tree, [name])
+            item.setIcon(0, self.folder_icon)
+            # 新建后立即保存到collections.json
+            self.save_all()
+            self.log_info(f'Create Collection: "{name}"')
+            return
+            
+        # 处理Collection节点的菜单
+        if item is not None and is_collection(item) and new_collection_action and action == new_collection_action:
             name, ok = QInputDialog.getText(self, 'New Collection', 'Enter collection name:')
             if not ok or not name.strip():
                 return
@@ -1250,9 +1371,7 @@ Version: 1.0.0'''
                     self.req_tabs.setTabText(i, new_name)
                 break
 
-    def import_collection(self):
-        from PyQt5.QtWidgets import QMessageBox
-        QMessageBox.information(self, 'Import Collection', '导入集合功能待实现。')
+
 
     def collection_drop_event_only_top_level(self, event):
         # Collection节点可无限层级，Request只能是Collection的子节点，Request/Collection同级可排序，Request不能变成顶层或Request的子节点
@@ -1561,20 +1680,27 @@ Version: 1.0.0'''
     def closeEvent(self, event):
         # 检查是否有未保存的改动
         has_unsaved_changes = False
-        if hasattr(self, 'req_tabs'):
-            for i in range(self.req_tabs.count()):
-                tab_text = self.req_tabs.tabText(i)
-                if '*' in tab_text:
-                    has_unsaved_changes = True
-                    break
+        if hasattr(self, 'req_tabs') and self.req_tabs is not None:
+            try:
+                for i in range(self.req_tabs.count()):
+                    tab_text = self.req_tabs.tabText(i)
+                    if '*' in tab_text:
+                        has_unsaved_changes = True
+                        break
+            except RuntimeError:
+                # req_tabs已被删除，忽略
+                pass
         
         if has_unsaved_changes:
             # 有未保存的改动，提示用户
             from PyQt5.QtWidgets import QMessageBox
             choice = QMessageBox.question(
                 self, 
-                '未保存的改动', 
-                '检测到有未保存的改动，是否保存后再退出？\n\n选择"是"将保存所有改动后退出\n选择"否"将放弃所有未保存的改动并退出\n选择"取消"将取消退出操作',
+                'Unsaved Changes', 
+                'Detected unsaved changes, do you want to save before exiting?\n\n'
+                'Yes = Save all changes and exit\n'
+                'No = Discard all unsaved changes and exit\n'
+                'Cancel = Cancel exit operation',
                 QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
                 QMessageBox.Yes
             )
@@ -1582,92 +1708,96 @@ Version: 1.0.0'''
             if choice == QMessageBox.Yes:
                 # 保存所有改动
                 # 先保存所有Tab中的未保存改动
-                if hasattr(self, 'req_tabs'):
-                    for i in range(self.req_tabs.count()):
-                        tab_widget = self.req_tabs.widget(i)
-                        if hasattr(tab_widget, 'serialize_request'):
-                            # 获取请求数据
-                            req_data = tab_widget.serialize_request()
-                            tab_name = self.req_tabs.tabText(i).replace('*', '')
-                            
-                            # 查找对应的树节点（包括集合内的节点）
-                            found_item = None
-                            def find_request_in_tree(parent_item):
-                                nonlocal found_item
-                                if found_item:
-                                    return
-                                for j in range(parent_item.childCount()):
-                                    child = parent_item.child(j)
-                                    if child.text(0) == tab_name and child.childCount() == 0:
-                                        found_item = child
-                                        return
-                                    elif child.childCount() > 0:
-                                        find_request_in_tree(child)
-                            
-                            # 在顶层节点中查找
-                            for j in range(self.collection_tree.topLevelItemCount()):
-                                item = self.collection_tree.topLevelItem(j)
-                                if item.text(0) == tab_name and item.childCount() == 0:
-                                    found_item = item
-                                    break
-                                elif item.childCount() > 0:
-                                    find_request_in_tree(item)
-                            
-                            if found_item:
-                                # 更新现有节点
-                                from PyQt5.QtCore import Qt
-                                found_item.setData(0, Qt.UserRole, req_data)
-                            else:
-                                # 如果没有找到，说明是新请求，添加到默认集合
-                                from PyQt5.QtWidgets import QTreeWidgetItem
-                                from PyQt5.QtCore import Qt
-                                new_item = QTreeWidgetItem([tab_name])
-                                new_item.setIcon(0, self.file_icon)
-                                new_item.setData(0, Qt.UserRole, req_data)
+                if hasattr(self, 'req_tabs') and self.req_tabs is not None:
+                    try:
+                        for i in range(self.req_tabs.count()):
+                            tab_widget = self.req_tabs.widget(i)
+                            if hasattr(tab_widget, 'serialize_request'):
+                                # 获取请求数据
+                                req_data = tab_widget.serialize_request()
+                                tab_name = self.req_tabs.tabText(i).replace('*', '')
                                 
-                                # 查找默认集合，如果没有则创建
-                                default_collection = None
+                                # 查找对应的树节点（包括集合内的节点）
+                                found_item = None
+                                def find_request_in_tree(parent_item):
+                                    nonlocal found_item
+                                    if found_item:
+                                        return
+                                    for j in range(parent_item.childCount()):
+                                        child = parent_item.child(j)
+                                        if child.text(0) == tab_name and child.childCount() == 0:
+                                            found_item = child
+                                            return
+                                        elif child.childCount() > 0:
+                                            find_request_in_tree(child)
+                                
+                                # 在顶层节点中查找
                                 for j in range(self.collection_tree.topLevelItemCount()):
                                     item = self.collection_tree.topLevelItem(j)
-                                    if item.text(0) == '默认集合':
-                                        default_collection = item
+                                    if item.text(0) == tab_name and item.childCount() == 0:
+                                        found_item = item
                                         break
+                                    elif item.childCount() > 0:
+                                        find_request_in_tree(item)
                                 
-                                if default_collection:
-                                    default_collection.addChild(new_item)
+                                if found_item:
+                                    # 更新现有节点
+                                    from PyQt5.QtCore import Qt
+                                    found_item.setData(0, Qt.UserRole, req_data)
                                 else:
-                                    # 创建默认集合
-                                    collection_item = QTreeWidgetItem(['默认集合'])
-                                    collection_item.setIcon(0, self.folder_icon)
-                                    self.collection_tree.addTopLevelItem(collection_item)
-                                    collection_item.addChild(new_item)
-                            
-                            # 移除Tab标题中的*号
-                            current_text = self.req_tabs.tabText(i)
-                            if current_text.endswith('*'):
-                                self.req_tabs.setTabText(i, current_text[:-1])
+                                    # 如果没有找到，说明是新请求，添加到默认集合
+                                    from PyQt5.QtWidgets import QTreeWidgetItem
+                                    from PyQt5.QtCore import Qt
+                                    new_item = QTreeWidgetItem([tab_name])
+                                    new_item.setIcon(0, self.file_icon)
+                                    new_item.setData(0, Qt.UserRole, req_data)
+                                    
+                                    # 查找默认集合，如果没有则创建
+                                    default_collection = None
+                                    for j in range(self.collection_tree.topLevelItemCount()):
+                                        item = self.collection_tree.topLevelItem(j)
+                                        if item.text(0) == 'Default Collection':
+                                            default_collection = item
+                                            break
+                                    
+                                    if default_collection:
+                                        default_collection.addChild(new_item)
+                                    else:
+                                        # 创建默认集合
+                                        collection_item = QTreeWidgetItem(['Default Collection'])
+                                        collection_item.setIcon(0, self.folder_icon)
+                                        self.collection_tree.addTopLevelItem(collection_item)
+                                        collection_item.addChild(new_item)
+                                
+                                # 移除Tab标题中的*号
+                                current_text = self.req_tabs.tabText(i)
+                                if current_text.endswith('*'):
+                                    self.req_tabs.setTabText(i, current_text[:-1])
+                    except RuntimeError:
+                        # req_tabs已被删除，忽略
+                        pass
                 
                 # 然后保存到collections.json
                 self.save_all()
-                self.log_info('用户选择保存所有改动后退出')
+                self.log_info('User chose to save all changes before exit')
             elif choice == QMessageBox.No:
                 # 放弃所有未保存的改动
-                self.log_info('用户选择放弃所有未保存的改动并退出')
+                self.log_info('User chose to discard all unsaved changes and exit')
             else:
                 # 取消退出
                 event.ignore()
                 return
         
         # 停止正在进行的请求
-        if self._req_worker:
+        if hasattr(self, '_req_worker') and self._req_worker:
             self._req_worker.stop()
-        if self._req_thread:
+        if hasattr(self, '_req_thread') and self._req_thread:
             self._req_thread.quit()
             self._req_thread.wait()
         
         # 记录应用关闭日志
         self.log_info('=' * 50)
-        self.log_info('postsuperman 应用关闭')
+        self.log_info('postsuperman application closed')
         self.log_info('=' * 50)
         
         event.accept()
