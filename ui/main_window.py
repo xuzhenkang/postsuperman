@@ -799,7 +799,112 @@ class MainWindow(QWidget):
             if reply != QMessageBox.Yes:
                 return  # 用户取消关闭
         self.req_tabs.removeTab(idx)
-        # 如果没有Tab或当前Tab不是RequestEditor，清空响应区
+        # 检查是否需要显示欢迎页
+        self.check_and_show_welcome_page()
+        # 如果当前Tab不是RequestEditor，清空响应区
+        if self.req_tabs.count() > 0 and not hasattr(self.req_tabs.currentWidget(), 'resp_status'):
+            self.resp_status_label.setText('')
+            self.resp_body_edit.setPlainText('')
+            self.resp_tabs.widget(1).setPlainText('')
+
+    def show_tab_context_menu(self, pos):
+        """显示Tab右键菜单"""
+        from PyQt5.QtWidgets import QMenu, QAction, QMessageBox
+        from PyQt5.QtCore import Qt
+        
+        # 获取点击的Tab索引
+        tab_bar = self.req_tabs.tabBar()
+        tab_index = tab_bar.tabAt(pos)
+        
+        if tab_index < 0:
+            return  # 点击在空白区域
+            
+        menu = QMenu(self)
+        
+        # 关闭当前Tab
+        close_current_action = QAction('关闭当前', self)
+        close_current_action.triggered.connect(lambda: self.close_tab_with_confirm(tab_index))
+        menu.addAction(close_current_action)
+        
+        # 关闭其他Tab
+        if self.req_tabs.count() > 1:
+            close_others_action = QAction('关闭其他', self)
+            close_others_action.triggered.connect(lambda: self.close_other_tabs(tab_index))
+            menu.addAction(close_others_action)
+        
+        # 关闭所有Tab
+        if self.req_tabs.count() > 1:
+            close_all_action = QAction('关闭所有', self)
+            close_all_action.triggered.connect(self.close_all_tabs)
+            menu.addAction(close_all_action)
+        
+        menu.exec_(self.req_tabs.mapToGlobal(pos))
+
+    def close_tab_with_confirm(self, tab_index):
+        """关闭指定Tab，如果有未保存更改会询问用户"""
+        tab_text = self.req_tabs.tabText(tab_index)
+        if tab_text.endswith('*'):
+            reply = QMessageBox.question(self, '未保存变更', 
+                                       f'Tab "{tab_text}" 有未保存的更改，确定要关闭吗？', 
+                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                return
+        self.req_tabs.removeTab(tab_index)
+        self.check_and_show_welcome_page()
+
+    def close_other_tabs(self, keep_index):
+        """关闭除了指定索引外的所有Tab"""
+        tabs_to_close = []
+        for i in range(self.req_tabs.count()):
+            if i != keep_index:
+                tab_text = self.req_tabs.tabText(i)
+                if tab_text.endswith('*'):
+                    tabs_to_close.append((i, tab_text))
+                else:
+                    tabs_to_close.append((i, tab_text))
+        
+        # 检查是否有未保存的Tab
+        unsaved_tabs = [tab for tab in tabs_to_close if tab[1].endswith('*')]
+        if unsaved_tabs:
+            tab_names = ', '.join([tab[1] for tab in unsaved_tabs])
+            reply = QMessageBox.question(self, '未保存变更', 
+                                       f'以下Tab有未保存的更改：\n{tab_names}\n\n确定要关闭吗？', 
+                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                return
+        
+        # 从后往前关闭，避免索引变化
+        for i in range(self.req_tabs.count() - 1, -1, -1):
+            if i != keep_index:
+                self.req_tabs.removeTab(i)
+        
+        self.check_and_show_welcome_page()
+
+    def close_all_tabs(self):
+        """关闭所有Tab"""
+        # 检查是否有未保存的Tab
+        unsaved_tabs = []
+        for i in range(self.req_tabs.count()):
+            tab_text = self.req_tabs.tabText(i)
+            if tab_text.endswith('*'):
+                unsaved_tabs.append(tab_text)
+        
+        if unsaved_tabs:
+            tab_names = ', '.join(unsaved_tabs)
+            reply = QMessageBox.question(self, '未保存变更', 
+                                       f'以下Tab有未保存的更改：\n{tab_names}\n\n确定要关闭所有Tab吗？', 
+                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                return
+        
+        # 关闭所有Tab
+        while self.req_tabs.count() > 0:
+            self.req_tabs.removeTab(0)
+        
+        self.check_and_show_welcome_page()
+
+    def check_and_show_welcome_page(self):
+        """检查是否需要显示欢迎页"""
         if self.req_tabs.count() == 0:
             # 移除请求区和响应区
             if hasattr(self, 'vertical_splitter') and self.vertical_splitter is not None:
@@ -818,11 +923,6 @@ class MainWindow(QWidget):
                 welcome_label.setStyleSheet('font-size: 18px; color: #888;')
                 welcome_vbox.addWidget(welcome_label)
             self.right_widget.layout().addWidget(self.welcome_page)
-        # 如果当前Tab不是RequestEditor，清空响应区
-        elif not hasattr(self.req_tabs.currentWidget(), 'resp_status'):
-            self.resp_status_label.setText('')
-            self.resp_body_edit.setPlainText('')
-            self.resp_tabs.widget(1).setPlainText('')
 
     def on_stop_request(self):
         if self._req_worker:
@@ -1173,6 +1273,9 @@ class MainWindow(QWidget):
                 self.req_tabs.setTabsClosable(True)
                 self.req_tabs.currentChanged.connect(self.on_req_tab_changed)
                 self.req_tabs.tabCloseRequested.connect(self.on_req_tab_closed)
+                # 添加右键菜单支持
+                self.req_tabs.setContextMenuPolicy(Qt.CustomContextMenu)
+                self.req_tabs.customContextMenuRequested.connect(self.show_tab_context_menu)
                 # 响应区
                 resp_card = QFrame()
                 resp_card.setObjectName('ResponseCard')
