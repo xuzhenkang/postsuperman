@@ -141,9 +141,19 @@ class MainWindow(QWidget):
         self.welcome_page = QWidget()
         welcome_vbox = QVBoxLayout(self.welcome_page)
         welcome_vbox.setAlignment(Qt.AlignCenter)
-        welcome_label = QLabel('🦸\n\n欢迎使用 postsuperman！\n\n点击左侧集合或新建请求，开始你的 API 调试之旅。\n\n支持多标签、参数/头/体编辑、cURL 导入、响应高亮、集合管理等丰富功能。')
+        welcome_vbox.setSpacing(20)
+        
+        # 添加应用图标
+        icon_label = QLabel()
+        icon_pixmap = QIcon('ui/app.ico').pixmap(128, 128)  # 128x128像素
+        icon_label.setPixmap(icon_pixmap)
+        icon_label.setAlignment(Qt.AlignCenter)
+        welcome_vbox.addWidget(icon_label)
+        
+        # 欢迎文本
+        welcome_label = QLabel('欢迎使用 postsuperman！\n\n点击左侧集合或新建请求，开始你的 API 调试之旅。\n\n支持多标签、参数/头/体编辑、cURL 导入、响应高亮、集合管理等丰富功能。')
         welcome_label.setAlignment(Qt.AlignCenter)
-        welcome_label.setStyleSheet('font-size: 18px; color: #888;')
+        welcome_label.setStyleSheet('font-size: 18px; color: #666; line-height: 1.5;')
         welcome_vbox.addWidget(welcome_label)
         right_layout.addWidget(self.welcome_page)
         splitter.addWidget(self.right_widget)
@@ -287,31 +297,116 @@ class MainWindow(QWidget):
             pass
 
     def show_about(self):
-        QMessageBox.information(self, 'About', 'postsuperman\nA Postman-like API debugging tool.\nPowered by Python & PyQt5. \nDeveloped by xuzhenkang@hotmail.com')
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel
+        from PyQt5.QtCore import QTimer
+        dlg = QDialog(self)
+        dlg.setWindowTitle('About')
+        dlg.setMinimumWidth(450)
+        layout = QVBoxLayout(dlg)
+        
+        # 应用信息
+        about_text = '''postsuperman
+
+A Postman-like API debugging tool.
+
+Features:
+• Multi-tab request management
+• Parameter, header, and body editing
+• cURL import and export
+• Response highlighting and formatting
+• Collection management
+• Environment support
+• Request history
+
+Powered by Python & PyQt5
+
+Developed by xuzhenkang@hotmail.com
+
+https://github.com/xuzhenkang/postsuperman
+
+Version: 1.0.0'''
+        
+        about_edit = QTextEdit()
+        about_edit.setReadOnly(True)
+        about_edit.setPlainText(about_text)
+        about_edit.setMaximumHeight(300)
+        layout.addWidget(about_edit)
+        
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        copy_btn = QPushButton('Copy to Clipboard')
+        copy_btn.setFixedWidth(120)
+        btn_row.addWidget(copy_btn)
+        layout.addLayout(btn_row)
+        
+        def do_copy():
+            from PyQt5.QtWidgets import QApplication
+            clipboard = QApplication.clipboard()
+            clipboard.setText(about_text)
+            
+            # 改变按钮文本为"Copied"
+            copy_btn.setText('Copied')
+            copy_btn.setEnabled(False)
+            
+            # 2秒后恢复按钮状态
+            timer = QTimer(dlg)
+            timer.setSingleShot(True)
+            def restore_button():
+                copy_btn.setText('Copy to Clipboard')
+                copy_btn.setEnabled(True)
+                timer.deleteLater()
+            timer.timeout.connect(restore_button)
+            timer.start(2000)  # 2000毫秒 = 2秒
+        
+        copy_btn.clicked.connect(do_copy)
+        dlg.exec_()
 
     def show_doc(self):
         QMessageBox.information(self, 'Documentation', 'Visit the official documentation site for usage instructions.')
 
     def show_contact(self):
         from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel
+        from PyQt5.QtCore import QTimer
         dlg = QDialog(self)
         dlg.setWindowTitle('Contact Me')
+        dlg.setMinimumWidth(400)
         layout = QVBoxLayout(dlg)
+        
         label = QLabel('For support, contact:')
         layout.addWidget(label)
+        
         contact_edit = QTextEdit()
         contact_edit.setReadOnly(True)
         contact_edit.setPlainText('xuzhenkang@hotmail.com')
+        contact_edit.setMaximumHeight(100)
         layout.addWidget(contact_edit)
+        
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        copy_btn = QPushButton('Copy')
+        copy_btn = QPushButton('Copy to Clipboard')
+        copy_btn.setFixedWidth(120)
         btn_row.addWidget(copy_btn)
         layout.addLayout(btn_row)
+        
         def do_copy():
             from PyQt5.QtWidgets import QApplication
             clipboard = QApplication.clipboard()
             clipboard.setText('xuzhenkang@hotmail.com')
+            
+            # 改变按钮文本为"Copied"
+            copy_btn.setText('Copied')
+            copy_btn.setEnabled(False)
+            
+            # 2秒后恢复按钮状态
+            timer = QTimer(dlg)
+            timer.setSingleShot(True)
+            def restore_button():
+                copy_btn.setText('Copy to Clipboard')
+                copy_btn.setEnabled(True)
+                timer.deleteLater()
+            timer.timeout.connect(restore_button)
+            timer.start(2000)  # 2000毫秒 = 2秒
+        
         copy_btn.clicked.connect(do_copy)
         dlg.exec_()
 
@@ -918,9 +1013,19 @@ class MainWindow(QWidget):
                 self.welcome_page = QWidget()
                 welcome_vbox = QVBoxLayout(self.welcome_page)
                 welcome_vbox.setAlignment(Qt.AlignCenter)
-                welcome_label = QLabel('🦸\n\n欢迎使用 postsuperman！\n\n点击左侧集合或新建请求，开始你的 API 调试之旅。\n\n支持多标签、参数/头/体编辑、cURL 导入、响应高亮、集合管理等丰富功能。')
+                welcome_vbox.setSpacing(20)
+                
+                # 添加应用图标
+                icon_label = QLabel()
+                icon_pixmap = QIcon('ui/app.ico').pixmap(128, 128)  # 128x128像素
+                icon_label.setPixmap(icon_pixmap)
+                icon_label.setAlignment(Qt.AlignCenter)
+                welcome_vbox.addWidget(icon_label)
+                
+                # 欢迎文本
+                welcome_label = QLabel('欢迎使用 postsuperman！\n\n点击左侧集合或新建请求，开始你的 API 调试之旅。\n\n支持多标签、参数/头/体编辑、cURL 导入、响应高亮、集合管理等丰富功能。')
                 welcome_label.setAlignment(Qt.AlignCenter)
-                welcome_label.setStyleSheet('font-size: 18px; color: #888;')
+                welcome_label.setStyleSheet('font-size: 18px; color: #666; line-height: 1.5;')
                 welcome_vbox.addWidget(welcome_label)
             self.right_widget.layout().addWidget(self.welcome_page)
 
