@@ -94,17 +94,20 @@ class MainWindow(QWidget):
         file_menu = menubar.addMenu('File')
         new_request_action = QAction('New Request', self)
         open_collection_action = QAction('Open Collection', self)
+        save_collection_as_action = QAction('Save Collection As', self)
         save_all_action = QAction('Save All', self)
         exit_action = QAction('Exit', self)
         file_menu.addAction(new_request_action)
         file_menu.addAction(open_collection_action)
         file_menu.addSeparator()
+        file_menu.addAction(save_collection_as_action)
         file_menu.addAction(save_all_action)
         file_menu.addSeparator()
         file_menu.addAction(exit_action)
         # self.setMenuBar(menubar)  # <-- 删除这行
         new_request_action.triggered.connect(self.create_new_request)
         open_collection_action.triggered.connect(self.open_collection)
+        save_collection_as_action.triggered.connect(self.save_collection_as)
         save_all_action.triggered.connect(self.save_all)
         help_menu = QMenu('Help', self)
         about_action = QAction('About', self)
@@ -1197,6 +1200,52 @@ Version: 1.0.0'''
         # 新建后立即保存到collections.json
         self.save_all()
         self.log_info(f'Create Collection: "{name}"')
+
+    def save_collection_as(self):
+        """从File菜单另存为集合文件"""
+        from PyQt5.QtWidgets import QFileDialog, QMessageBox
+        import json
+        
+        # 检查是否有集合数据
+        if not hasattr(self, 'collection_tree') or self.collection_tree.topLevelItemCount() == 0:
+            QMessageBox.information(self, 'No Collections', 'No collections to save. Please create some collections first.')
+            return
+        
+        # 打开保存文件对话框
+        fname, _ = QFileDialog.getSaveFileName(
+            self, 
+            'Save Collection As', 
+            'collections.json', 
+            'JSON Files (*.json);;All Files (*)'
+        )
+        
+        if not fname:
+            return
+            
+        try:
+            # 获取当前集合数据
+            data = self.serialize_collections()
+            
+            # 检查是否有有效数据
+            if not data:
+                QMessageBox.warning(self, 'No Data', 'No valid collection data to save.')
+                return
+            
+            # 保存到指定文件
+            with open(fname, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            
+            self.log_info(f'Save collection as: {fname}')
+            
+            QMessageBox.information(
+                self, 
+                'Success', 
+                f'Collection saved successfully to:\n{fname}'
+            )
+            
+        except Exception as e:
+            QMessageBox.warning(self, 'Save Failed', f'Failed to save collection: {e}')
+            self.log_error(f'Save collection as failed: {e}')
 
     def show_collection_menu(self, pos):
         from PyQt5.QtWidgets import QMenu, QMessageBox, QInputDialog
