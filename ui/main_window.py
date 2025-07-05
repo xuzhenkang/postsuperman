@@ -191,23 +191,7 @@ class MainWindow(QWidget):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(0)
         # 欢迎页
-        self.welcome_page = QWidget()
-        welcome_vbox = QVBoxLayout(self.welcome_page)
-        welcome_vbox.setAlignment(Qt.AlignCenter)
-        welcome_vbox.setSpacing(20)
-        
-        # 添加应用图标
-        icon_label = QLabel()
-        icon_pixmap = self._app_icon.pixmap(128, 128)
-        icon_label.setPixmap(icon_pixmap)
-        icon_label.setAlignment(Qt.AlignCenter)
-        welcome_vbox.addWidget(icon_label)
-        
-        # 欢迎文本
-        welcome_label = QLabel('Welcome to postsuperman!\n\nClick on collections or create new requests to start your API debugging journey.\n\nSupports multi-tabs, parameter/header/body editing, cURL import, response highlighting, collection management and other rich features.')
-        welcome_label.setAlignment(Qt.AlignCenter)
-        welcome_label.setStyleSheet('font-size: 18px; color: #666; line-height: 1.5;')
-        welcome_vbox.addWidget(welcome_label)
+        self.welcome_page = self.create_welcome_page()
         right_layout.addWidget(self.welcome_page)
         splitter.addWidget(self.right_widget)
         # 设置分割器的初始大小比例
@@ -1807,24 +1791,7 @@ Version: 1.0.0'''
                 self.vertical_splitter = None
             # 重新显示欢迎页
             if not hasattr(self, 'welcome_page') or self.welcome_page is None:
-                from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel
-                self.welcome_page = QWidget()
-                welcome_vbox = QVBoxLayout(self.welcome_page)
-                welcome_vbox.setAlignment(Qt.AlignCenter)
-                welcome_vbox.setSpacing(20)
-                
-                # 添加应用图标
-                icon_label = QLabel()
-                icon_pixmap = self._app_icon.pixmap(128, 128)
-                icon_label.setPixmap(icon_pixmap)
-                icon_label.setAlignment(Qt.AlignCenter)
-                welcome_vbox.addWidget(icon_label)
-                
-                # 欢迎文本
-                welcome_label = QLabel('欢迎使用 postsuperman！\n\n点击左侧集合或新建请求，开始你的 API 调试之旅。\n\n支持多标签、参数/头/体编辑、cURL 导入、响应高亮、集合管理等丰富功能。')
-                welcome_label.setAlignment(Qt.AlignCenter)
-                welcome_label.setStyleSheet('font-size: 18px; color: #666; line-height: 1.5;')
-                welcome_vbox.addWidget(welcome_label)
+                self.welcome_page = self.create_welcome_page()
             self.right_widget.layout().addWidget(self.welcome_page)
 
     def on_stop_request(self):
@@ -2426,6 +2393,68 @@ Version: 1.0.0'''
                     req_editor.body_none_radio.setChecked(True)
             self.req_tabs.addTab(req_editor, request_path)
             self.req_tabs.setCurrentWidget(req_editor)
+
+    def create_welcome_page(self):
+        """创建统一的欢迎页"""
+        from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel
+        from PyQt5.QtCore import Qt
+        
+        welcome_page = QWidget()
+        welcome_page.setStyleSheet("""
+            QWidget {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #f8f9fa, stop:1 #e9ecef);
+                border: none;
+            }
+        """)
+        
+        welcome_vbox = QVBoxLayout(welcome_page)
+        welcome_vbox.setAlignment(Qt.AlignCenter)
+        welcome_vbox.setSpacing(30)
+        welcome_vbox.setContentsMargins(40, 40, 40, 40)
+        
+        # 应用图标
+        icon_label = QLabel()
+        icon_pixmap = self._app_icon.pixmap(96, 96)
+        icon_label.setPixmap(icon_pixmap)
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setStyleSheet("""
+            QLabel {
+                background: transparent;
+                border: none;
+            }
+        """)
+        welcome_vbox.addWidget(icon_label)
+        
+        # 主标题
+        title_label = QLabel('Welcome to PostSuperman')
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet("""
+            QLabel {
+                font-size: 28px;
+                font-weight: bold;
+                color: #2c3e50;
+                background: transparent;
+                border: none;
+            }
+        """)
+        welcome_vbox.addWidget(title_label)
+        
+        # 描述文本
+        desc_label = QLabel('Click on collections or create new requests to start your API debugging journey.\n\nSupports multi-tabs, parameter/header/body editing, cURL import, \n\nresponse highlighting, collection management and other rich features.')
+        desc_label.setAlignment(Qt.AlignCenter)
+        desc_label.setStyleSheet("""
+            QLabel {
+                font-size: 16px;
+                color: #7f8c8d;
+                background: transparent;
+                border: none;
+                line-height: 1.6;
+            }
+        """)
+        welcome_vbox.addWidget(desc_label)
+        
+        return welcome_page
 
 class JsonHighlighter(QSyntaxHighlighter):
     def __init__(self, parent=None):
