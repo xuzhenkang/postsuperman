@@ -93,11 +93,14 @@ class MainWindow(QWidget):
         menubar = QMenuBar(self)
         file_menu = menubar.addMenu('File')
         new_request_action = QAction('New Request', self)
+        new_collection_action = QAction('New Collection', self)
         open_collection_action = QAction('Open Collection', self)
         save_collection_as_action = QAction('Save Collection As', self)
         save_all_action = QAction('Save All', self)
         exit_action = QAction('Exit', self)
         file_menu.addAction(new_request_action)
+        file_menu.addAction(new_collection_action)
+        file_menu.addSeparator()
         file_menu.addAction(open_collection_action)
         file_menu.addSeparator()
         file_menu.addAction(save_collection_as_action)
@@ -106,6 +109,7 @@ class MainWindow(QWidget):
         file_menu.addAction(exit_action)
         # self.setMenuBar(menubar)  # <-- 删除这行
         new_request_action.triggered.connect(self.create_new_request)
+        new_collection_action.triggered.connect(self.create_collection)
         open_collection_action.triggered.connect(self.open_collection)
         save_collection_as_action.triggered.connect(self.save_collection_as)
         save_all_action.triggered.connect(self.save_all)
@@ -158,12 +162,6 @@ class MainWindow(QWidget):
         collections_layout = QVBoxLayout(collections_panel)
         collections_layout.setContentsMargins(0, 0, 0, 0)
         collections_layout.setSpacing(4)
-        btn_row = QHBoxLayout()
-        self.new_collection_btn = QPushButton('New Collection')
-        self.new_collection_btn.setToolTip('Create a new request collection')
-        btn_row.addWidget(self.new_collection_btn)
-        btn_row.addStretch()
-        collections_layout.addLayout(btn_row)
         self.collection_tree = QTreeWidget()
         self.collection_tree.setHeaderHidden(True)
         self.collection_tree.setDragDropMode(self.collection_tree.InternalMove)
@@ -216,7 +214,6 @@ class MainWindow(QWidget):
         splitter.setSizes([260, 1180])  # 左侧260px，右侧1180px（总宽度1440px）
         main_layout.addWidget(splitter) 
 
-        self.new_collection_btn.clicked.connect(self.create_collection)
         self.collection_tree.customContextMenuRequested.connect(self.show_collection_menu)
         self.collection_tree.itemDoubleClicked.connect(self.on_collection_item_double_clicked)
 
@@ -1085,7 +1082,48 @@ Version: 1.0.0'''
         req_editor = RequestEditor(self)
         self.req_tabs.addTab(req_editor, 'New Request')
         self.req_tabs.setCurrentWidget(req_editor)
+        
+        # 自动保存新请求到collections.json
+        self.save_new_request_to_collections(req_editor, 'New Request')
+        
         self.log_info('Create new request from File menu')
+
+    def save_new_request_to_collections(self, req_editor, request_name):
+        """将新创建的请求保存到collections.json"""
+        from PyQt5.QtWidgets import QTreeWidgetItem
+        from PyQt5.QtCore import Qt
+        
+        # 获取请求数据
+        req_data = req_editor.serialize_request()
+        
+        # 创建树节点
+        new_item = QTreeWidgetItem([request_name])
+        new_item.setIcon(0, self.file_icon)
+        new_item.setData(0, Qt.UserRole, req_data)
+        
+        # 查找默认集合，如果没有则创建
+        default_collection = None
+        for i in range(self.collection_tree.topLevelItemCount()):
+            item = self.collection_tree.topLevelItem(i)
+            if item.text(0) == 'Default Collection':
+                default_collection = item
+                break
+        
+        if default_collection:
+            # 添加到默认集合
+            default_collection.addChild(new_item)
+            default_collection.setExpanded(True)
+        else:
+            # 创建默认集合并添加请求
+            collection_item = QTreeWidgetItem(['Default Collection'])
+            collection_item.setIcon(0, self.folder_icon)
+            self.collection_tree.addTopLevelItem(collection_item)
+            collection_item.addChild(new_item)
+            collection_item.setExpanded(True)
+        
+        # 保存到collections.json
+        self.save_all()
+        self.log_info(f'Save new request "{request_name}" to collections.json')
 
     def open_collection(self):
         """从File菜单打开集合文件"""
@@ -1264,6 +1302,11 @@ Version: 1.0.0'''
             return item is not None and not is_request(item)
         
         # 菜单生成
+        new_collection_action = None
+        new_req_action = None
+        rename_action = None
+        delete_action = None
+        
         if item is None:
             # 空白处右键菜单
             new_collection_action = menu.addAction('New Collection')
@@ -1276,13 +1319,8 @@ Version: 1.0.0'''
             delete_action = menu.addAction('Delete')
         elif is_request(item):
             # Request节点右键菜单
-            new_collection_action = None
             rename_action = menu.addAction('Rename')
             delete_action = menu.addAction('Delete')
-        else:
-            new_collection_action = None
-            rename_action = None
-            delete_action = None
         action = menu.exec_(self.collection_tree.viewport().mapToGlobal(pos))
         
         # 处理空白处的New Collection
@@ -1327,6 +1365,7 @@ Version: 1.0.0'''
             self.save_all()
             return
         elif 'new_req_action' in locals() and new_req_action and action == new_req_action:
+            from PyQt5.QtCore import Qt  # 确保Qt已导入
             name, ok = QInputDialog.getText(self, 'New Request', 'Enter request name:')
             if not ok or not name.strip():
                 return
@@ -1340,11 +1379,78 @@ Version: 1.0.0'''
                 if sibling and sibling.text(0) == name:
                     QMessageBox.warning(self, 'Create Failed', f'A request named "{name}" already exists in this collection!')
                     return
+            # 创建树节点
             new_item = QTreeWidgetItem(item, [name])
             new_item.setIcon(0, self.file_icon)
             item.setExpanded(True)
-            # 新建后立即保存到collections.json
+            # 创建新请求编辑器
+            req_editor = RequestEditor(self)
+            # 确保请求区域已创建
+            if not hasattr(self, 'req_tabs') or self.req_tabs is None:
+                from PyQt5.QtWidgets import QTabWidget, QSplitter, QFrame, QVBoxLayout, QLineEdit, QPushButton, QTextEdit, QHBoxLayout
+                from PyQt5.QtCore import Qt
+                from PyQt5.QtGui import QFont
+                if hasattr(self, 'welcome_page') and self.welcome_page is not None:
+                    self.right_widget.layout().removeWidget(self.welcome_page)
+                    self.welcome_page.deleteLater()
+                    self.welcome_page = None
+                vertical_splitter = QSplitter(Qt.Vertical)
+                self.req_tabs = QTabWidget()
+                self.req_tabs.setObjectName('RequestTabs')
+                self.req_tabs.setTabsClosable(True)
+                self.req_tabs.currentChanged.connect(self.on_req_tab_changed)
+                self.req_tabs.tabCloseRequested.connect(self.on_req_tab_closed)
+                self.req_tabs.setContextMenuPolicy(Qt.CustomContextMenu)
+                self.req_tabs.customContextMenuRequested.connect(self.show_tab_context_menu)
+                resp_card = QFrame()
+                resp_card.setObjectName('ResponseCard')
+                resp_card_layout = QVBoxLayout(resp_card)
+                resp_card_layout.setContentsMargins(16, 8, 16, 8)
+                resp_card_layout.setSpacing(8)
+                self.resp_tabs = QTabWidget()
+                self.resp_tabs.setObjectName('RespTabs')
+                resp_body_widget = QWidget()
+                resp_body_layout = QVBoxLayout(resp_body_widget)
+                resp_body_layout.setContentsMargins(0, 0, 0, 0)
+                resp_body_layout.setSpacing(4)
+                self.resp_status_label = QLineEdit('Click Send to get a response')
+                self.resp_status_label.setReadOnly(True)
+                self.resp_status_label.setFrame(False)
+                self.resp_status_label.setStyleSheet('background: transparent; border: none; font-weight: bold; color: #333;')
+                status_row = QHBoxLayout()
+                status_row.addWidget(self.resp_status_label)
+                status_row.addStretch()
+                self.save_resp_btn = QPushButton('Save Response to File')
+                self.clear_resp_btn = QPushButton('Clear Response')
+                status_row.addWidget(self.save_resp_btn)
+                status_row.addWidget(self.clear_resp_btn)
+                resp_body_layout.addLayout(status_row)
+                self.resp_body_edit = CodeEditor()
+                self.resp_body_edit.setReadOnly(True)
+                self.resp_json_highlighter = JsonHighlighter(self.resp_body_edit.document())
+                resp_body_layout.addWidget(self.resp_body_edit)
+                resp_body_widget.setLayout(resp_body_layout)
+                self.resp_tabs.addTab(resp_body_widget, 'Body')
+                resp_headers_widget = QTextEdit()
+                resp_headers_widget.setReadOnly(True)
+                self.resp_tabs.addTab(resp_headers_widget, 'Headers')
+                resp_card_layout.addWidget(self.resp_tabs)
+                resp_card.setLayout(resp_card_layout)
+                self.resp_loading_overlay = RespLoadingOverlay(resp_card, mainwin=self)
+                vertical_splitter.addWidget(self.req_tabs)
+                vertical_splitter.addWidget(resp_card)
+                vertical_splitter.setSizes([500, 300])
+                layout = self.right_widget.layout()
+                layout.addWidget(vertical_splitter)
+                self.vertical_splitter = vertical_splitter
+                self.save_resp_btn.clicked.connect(self.save_response_to_file)
+                self.clear_resp_btn.clicked.connect(self.clear_response)
+            self.req_tabs.addTab(req_editor, name)
+            self.req_tabs.setCurrentWidget(req_editor)
+            req_data = req_editor.serialize_request()
+            new_item.setData(0, Qt.UserRole, req_data)
             self.save_all()
+            self.log_info(f'Create new request "{name}" from context menu')
             return
         elif rename_action and action == rename_action:
             name, ok = QInputDialog.getText(self, 'Rename', 'Enter new name:', text=item.text(0))
@@ -2106,7 +2212,15 @@ Version: 1.0.0'''
     def serialize_collections(self):
         from PyQt5.QtCore import Qt
         def serialize_item(item):
-            if item.childCount() == 0:  # request
+            # 用和 is_request 一样的逻辑判断
+            def is_request(item):
+                return (
+                    item is not None and
+                    item.childCount() == 0 and
+                    item.parent() is not None and
+                    item.icon(0).cacheKey() == self.file_icon.cacheKey()
+                )
+            if is_request(item):
                 req_data = item.data(0, Qt.UserRole)
                 if not req_data:
                     return None  # 未保存的request不导出
@@ -2116,10 +2230,16 @@ Version: 1.0.0'''
                     'request': req_data
                 }
             else:
+                # Collection节点，即使没有子项也要保存
+                children = []
+                for i in range(item.childCount()):
+                    child_result = serialize_item(item.child(i))
+                    if child_result:
+                        children.append(child_result)
                 return {
                     'name': item.text(0),
                     'type': 'collection',
-                    'children': [x for x in (serialize_item(item.child(i)) for i in range(item.childCount())) if x]
+                    'children': children
                 }
         data = []
         for i in range(self.collection_tree.topLevelItemCount()):
@@ -2171,7 +2291,7 @@ Version: 1.0.0'''
             else:
                 try:
                     _ = self.req_tabs.count()
-                except RuntimeError:
+                except Exception:
                     need_create = True
             if need_create:
                 from PyQt5.QtWidgets import QTabWidget, QSplitter, QFrame, QVBoxLayout, QLineEdit, QPushButton, QTextEdit, QHBoxLayout
@@ -2239,13 +2359,25 @@ Version: 1.0.0'''
                 self.vertical_splitter = vertical_splitter
                 self.save_resp_btn.clicked.connect(self.save_response_to_file)
                 self.clear_resp_btn.clicked.connect(self.clear_response)
-            name = item.text(0)
+            # 生成包含Collection路径的唯一标识
+            def get_request_path(item):
+                path_parts = []
+                current = item
+                while current is not None:
+                    path_parts.insert(0, current.text(0))
+                    current = current.parent()
+                return '/'.join(path_parts)
+            
+            request_path = get_request_path(item)
+            request_name = item.text(0)
+            
+            # 检查是否已存在相同路径的Tab
             for i in range(self.req_tabs.count()):
-                if self.req_tabs.tabText(i) == name:
+                if self.req_tabs.tabText(i) == request_path:
                     self.req_tabs.setCurrentIndex(i)
                     return
             req_data = self.get_request_data_from_tree(item)
-            req_editor = RequestEditor(self, req_name=name)
+            req_editor = RequestEditor(self, req_name=request_name)
             if req_data:
                 req_editor.method_combo.setCurrentText(req_data.get('method', 'GET'))
                 req_editor.url_edit.setText(req_data.get('url', ''))
@@ -2292,7 +2424,7 @@ Version: 1.0.0'''
                     req_editor.raw_type_combo.setCurrentText(req_data.get('raw_type', 'JSON'))
                 else:
                     req_editor.body_none_radio.setChecked(True)
-            self.req_tabs.addTab(req_editor, name)
+            self.req_tabs.addTab(req_editor, request_path)
             self.req_tabs.setCurrentWidget(req_editor)
 
 class JsonHighlighter(QSyntaxHighlighter):
@@ -2684,31 +2816,6 @@ class RequestEditor(QWidget):
                     mainwin.req_tabs.setTabText(idx, t[:-1])
         self._dirty = False
         mainwin.save_all()
-
-    def serialize_collections(self):
-        from PyQt5.QtCore import Qt
-        def serialize_item(item):
-            if item.childCount() == 0:  # request
-                req_data = item.data(0, Qt.UserRole)
-                if not req_data:
-                    return None  # 未保存的request不导出
-                return {
-                    'name': item.text(0),
-                    'type': 'request',
-                    'request': req_data
-                }
-            else:
-                return {
-                    'name': item.text(0),
-                    'type': 'collection',
-                    'children': [x for x in (serialize_item(item.child(i)) for i in range(item.childCount())) if x]
-                }
-        data = []
-        for i in range(self.collection_tree.topLevelItemCount()):
-            node = serialize_item(self.collection_tree.topLevelItem(i))
-            if node:
-                data.append(node)
-        return data
 
     def refresh_table_widgets(self, table):
         for r in range(table.rowCount()):
