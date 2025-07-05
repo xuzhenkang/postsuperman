@@ -12,6 +12,8 @@ import urllib.parse
 import threading
 import sys
 import os
+import logging
+from datetime import datetime
 
 app = QApplication(sys.argv)
 app.setWindowIcon(QIcon('ui/app.ico'))  # 路径根据实际文件调整
@@ -28,6 +30,10 @@ class MainWindow(QWidget):
         self._req_thread = None
         self._req_worker = None
         self._current_editor = None
+        
+        # 初始化日志系统
+        self.init_logging()
+        
         self.init_ui()
         self.load_collections()
 
@@ -130,7 +136,8 @@ class MainWindow(QWidget):
         self.history_list = QListWidget()
         self.left_tab.addTab(self.history_list, 'History')
         left_layout.addWidget(self.left_tab)
-        left_widget.setFixedWidth(260)
+        left_widget.setMinimumWidth(200)  # 设置最小宽度
+        left_widget.setMaximumWidth(500)  # 设置最大宽度
         splitter.addWidget(left_widget)
         # 右侧主区
         self.right_widget = QWidget()
@@ -157,6 +164,8 @@ class MainWindow(QWidget):
         welcome_vbox.addWidget(welcome_label)
         right_layout.addWidget(self.welcome_page)
         splitter.addWidget(self.right_widget)
+        # 设置分割器的初始大小比例
+        splitter.setSizes([260, 1180])  # 左侧260px，右侧1180px（总宽度1440px）
         main_layout.addWidget(splitter) 
 
         self.new_collection_btn.clicked.connect(self.create_collection)
@@ -167,6 +176,55 @@ class MainWindow(QWidget):
         
         
         self.collection_tree.itemClicked.connect(self.on_collection_item_clicked)
+
+    def init_logging(self):
+        """初始化日志系统"""
+        # 创建日志文件路径，与collections.json同级
+        log_file = os.path.join(self._workspace_dir, 'postsuperman.log')
+        
+        # 配置日志格式
+        log_format = '%(asctime)s - %(levelname)s - %(message)s'
+        date_format = '%Y-%m-%d %H:%M:%S'
+        
+        # 配置日志处理器
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setLevel(logging.INFO)
+        
+        # 创建格式化器
+        formatter = logging.Formatter(log_format, date_format)
+        file_handler.setFormatter(formatter)
+        
+        # 配置根日志记录器
+        self.logger = logging.getLogger('postsuperman')
+        self.logger.setLevel(logging.INFO)
+        self.logger.addHandler(file_handler)
+        
+        # 记录应用启动日志
+        self.logger.info('=' * 50)
+        self.logger.info('postsuperman 应用启动')
+        self.logger.info(f'工作目录: {self._workspace_dir}')
+        self.logger.info(f'日志文件: {log_file}')
+        self.logger.info('=' * 50)
+
+    def log_info(self, message):
+        """记录信息日志"""
+        if hasattr(self, 'logger'):
+            self.logger.info(message)
+
+    def log_warning(self, message):
+        """记录警告日志"""
+        if hasattr(self, 'logger'):
+            self.logger.warning(message)
+
+    def log_error(self, message):
+        """记录错误日志"""
+        if hasattr(self, 'logger'):
+            self.logger.error(message)
+
+    def log_debug(self, message):
+        """记录调试日志"""
+        if hasattr(self, 'logger'):
+            self.logger.debug(message)
 
     def init_table(self, table):
         table.setColumnCount(5)
@@ -424,6 +482,9 @@ Version: 1.0.0'''
             return
         method = editor.method_combo.currentText()
         url = editor.url_edit.text().strip()
+        
+        # 记录请求发送日志
+        self.log_info(f'发送HTTP请求: {method} {url}')
         # 拼接Params
         params = {}
         for row in range(editor.params_table.rowCount()-1):
@@ -510,6 +571,9 @@ Version: 1.0.0'''
         elapsed = result['elapsed']
         self._last_response_bytes = resp.content
         status = f'{resp.status_code} {resp.reason}   {elapsed}ms   {len(resp.content)/1024:.2f}KB'
+        
+        # 记录请求完成日志
+        self.log_info(f'HTTP请求完成: {resp.status_code} {resp.reason} - 耗时: {elapsed}ms - 大小: {len(resp.content)/1024:.2f}KB')
         try:
             content_type = resp.headers.get('Content-Type', '')
             body = resp.text
@@ -547,6 +611,9 @@ Version: 1.0.0'''
         status = f'Error: {msg}'
         body = ''
         headers_str = ''
+        
+        # 记录请求错误日志
+        self.log_error(f'HTTP请求失败: {msg}')
         self.resp_status_label.setText(status)
         self.resp_body_edit.setPlainText(body)
         self.resp_tabs.setCurrentIndex(0)
@@ -623,12 +690,16 @@ Version: 1.0.0'''
                     return True
             return False
         if is_duplicate(self.collection_tree, name):
+            self.log_warning(f'新建Collection失败: 已存在名为"{name}"的集合')
             QMessageBox.warning(self, '新建失败', f'已存在名为"{name}"的集合！')
             return
         item = QTreeWidgetItem(self.collection_tree, [name])
         item.setIcon(0, self.folder_icon)
         QTreeWidgetItem(item, ['GET 示例请求'])
         self.left_tab.addTab(collections_panel, 'Collections')
+        # 新建后立即保存到collections.json
+        self.save_all()
+        self.log_info(f'新建Collection: "{name}"')
 
     def show_collection_menu(self, pos):
         from PyQt5.QtWidgets import QMenu, QMessageBox, QInputDialog
@@ -676,6 +747,8 @@ Version: 1.0.0'''
             new_item = QTreeWidgetItem(item, [name])
             new_item.setIcon(0, self.folder_icon)
             item.setExpanded(True)
+            # 新建后立即保存到collections.json
+            self.save_all()
             return
         elif 'new_req_action' in locals() and new_req_action and action == new_req_action:
             name, ok = QInputDialog.getText(self, '新建 Request', '请输入请求名称:')
@@ -694,6 +767,8 @@ Version: 1.0.0'''
             new_item = QTreeWidgetItem(item, [name])
             new_item.setIcon(0, self.file_icon)
             item.setExpanded(True)
+            # 新建后立即保存到collections.json
+            self.save_all()
             return
         elif rename_action and action == rename_action:
             name, ok = QInputDialog.getText(self, '重命名', '请输入新名称:', text=item.text(0))
@@ -706,31 +781,68 @@ Version: 1.0.0'''
             if item.parent() is None:
                 for i in range(self.collection_tree.topLevelItemCount()):
                     if self.collection_tree.topLevelItem(i) != item and self.collection_tree.topLevelItem(i).text(0) == name:
+                        self.log_warning(f'重命名失败: 已存在名为"{name}"的集合')
                         QMessageBox.warning(self, '重命名失败', f'已存在名为"{name}"的集合！')
                         return
             else:
                 parent = item.parent()
                 for i in range(parent.childCount()):
                     if parent.child(i) != item and parent.child(i).text(0) == name:
+                        self.log_warning(f'重命名失败: 该集合下已存在名为"{name}"的请求')
                         QMessageBox.warning(self, '重命名失败', f'该集合下已存在名为"{name}"的请求！')
                         return
+            old_name = item.text(0)
             item.setText(0, name)
             # 重命名后保持图标
             if item.childCount() == 0:
                 item.setIcon(0, self.file_icon)
             else:
                 item.setIcon(0, self.folder_icon)
+            # 如果是Request节点，同步更新右侧标签页
+            if item.childCount() == 0 and item.parent() is not None:
+                self.update_tab_title(old_name, name)
+                self.log_info(f'重命名Request: "{old_name}" -> "{name}"')
+            else:
+                self.log_info(f'重命名Collection: "{old_name}" -> "{name}"')
+            # 重命名后立即保存到collections.json
+            self.save_all()
         elif delete_action and action == delete_action:
             if item.parent() is None:
                 reply = QMessageBox.question(self, '删除集合', f'确定要删除集合"{item.text(0)}"吗？', QMessageBox.Yes | QMessageBox.No)
                 if reply == QMessageBox.Yes:
+                    collection_name = item.text(0)
                     idx = self.collection_tree.indexOfTopLevelItem(item)
                     self.collection_tree.takeTopLevelItem(idx)
+                    # 删除后立即保存到collections.json
+                    self.save_all()
+                    self.log_info(f'删除Collection: "{collection_name}"')
             else:
                 reply = QMessageBox.question(self, '删除请求', f'确定要删除请求"{item.text(0)}"吗？', QMessageBox.Yes | QMessageBox.No)
                 if reply == QMessageBox.Yes:
+                    request_name = item.text(0)
                     parent = item.parent()
                     parent.removeChild(item)
+                    # 删除后立即保存到collections.json
+                    self.save_all()
+                    self.log_info(f'删除Request: "{request_name}"')
+
+    def update_tab_title(self, old_name, new_name):
+        """更新标签页标题，同步重命名操作"""
+        if not hasattr(self, 'req_tabs'):
+            return
+        
+        # 查找对应的标签页并更新标题
+        for i in range(self.req_tabs.count()):
+            tab_text = self.req_tabs.tabText(i)
+            # 移除可能的星号标记
+            clean_tab_text = tab_text.rstrip('*')
+            if clean_tab_text == old_name:
+                # 保持原有的星号标记状态
+                if tab_text.endswith('*'):
+                    self.req_tabs.setTabText(i, new_name + '*')
+                else:
+                    self.req_tabs.setTabText(i, new_name)
+                break
 
     def import_collection(self):
         from PyQt5.QtWidgets import QMessageBox
@@ -760,6 +872,8 @@ Version: 1.0.0'''
             # 拖到根部或Collection节点下，允许
             if target_item is None or is_collection(target_item):
                 QTreeWidget.dropEvent(self.collection_tree, event)
+                # 拖拽后立即保存到collections.json
+                self.save_all()
                 return
             # 拖到Request节点下，禁止
             if is_request(target_item):
@@ -770,10 +884,14 @@ Version: 1.0.0'''
             # 只能在同一Collection下排序
             if target_item is not None and target_item.parent() == source.parent() and is_request(target_item):
                 QTreeWidget.dropEvent(self.collection_tree, event)
+                # 拖拽后立即保存到collections.json
+                self.save_all()
                 return
             # 拖到Collection节点，允许作为其子节点（即跨Collection移动）
             if is_collection(target_item):
                 QTreeWidget.dropEvent(self.collection_tree, event)
+                # 拖拽后立即保存到collections.json
+                self.save_all()
                 return
             # 拖到根部或Request节点下，禁止
             event.ignore()
@@ -1040,6 +1158,12 @@ Version: 1.0.0'''
         if self._req_thread:
             self._req_thread.quit()
             self._req_thread.wait()
+        
+        # 记录应用关闭日志
+        self.log_info('=' * 50)
+        self.log_info('postsuperman 应用关闭')
+        self.log_info('=' * 50)
+        
         event.accept()
 
     def import_request_dialog(self):
@@ -1288,8 +1412,10 @@ Version: 1.0.0'''
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             self._unsaved_changes = False
+            self.log_info(f'保存collections.json成功: {path}')
         except Exception as e:
             from PyQt5.QtWidgets import QMessageBox
+            self.log_error(f'保存collections.json失败: {e}')
             QMessageBox.warning(self, 'Save Failed', f'保存失败: {e}')
 
     def serialize_collections(self):
