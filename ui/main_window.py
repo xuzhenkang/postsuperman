@@ -92,12 +92,16 @@ class MainWindow(QWidget):
         # 菜单栏
         menubar = QMenuBar(self)
         file_menu = menubar.addMenu('File')
+        new_request_action = QAction('New Request', self)
         save_all_action = QAction('Save All', self)
         exit_action = QAction('Exit', self)
+        file_menu.addAction(new_request_action)
+        file_menu.addSeparator()
         file_menu.addAction(save_all_action)
         file_menu.addSeparator()
         file_menu.addAction(exit_action)
         # self.setMenuBar(menubar)  # <-- 删除这行
+        new_request_action.triggered.connect(self.create_new_request)
         save_all_action.triggered.connect(self.save_all)
         help_menu = QMenu('Help', self)
         about_action = QAction('About', self)
@@ -1004,6 +1008,82 @@ Version: 1.0.0'''
         else:
             self.json_highlighter.setDocument(None)
             self.beautify_btn.setVisible(False)
+
+    def create_new_request(self):
+        """从File菜单创建新请求"""
+        # 确保请求区域已创建
+        if not hasattr(self, 'req_tabs') or self.req_tabs is None:
+            from PyQt5.QtWidgets import QTabWidget, QSplitter, QFrame, QVBoxLayout, QLineEdit, QPushButton, QTextEdit, QHBoxLayout
+            from PyQt5.QtCore import Qt
+            from PyQt5.QtGui import QFont
+            # 彻底移除并销毁欢迎页，防止QBasicTimer警告
+            if hasattr(self, 'welcome_page') and self.welcome_page is not None:
+                self.right_widget.layout().removeWidget(self.welcome_page)
+                self.welcome_page.deleteLater()
+                self.welcome_page = None
+            # 创建请求Tab和响应区
+            vertical_splitter = QSplitter(Qt.Vertical)
+            self.req_tabs = QTabWidget()
+            self.req_tabs.setObjectName('RequestTabs')
+            self.req_tabs.setTabsClosable(True)
+            self.req_tabs.currentChanged.connect(self.on_req_tab_changed)
+            self.req_tabs.tabCloseRequested.connect(self.on_req_tab_closed)
+            # 添加右键菜单支持
+            self.req_tabs.setContextMenuPolicy(Qt.CustomContextMenu)
+            self.req_tabs.customContextMenuRequested.connect(self.show_tab_context_menu)
+            # 响应区
+            resp_card = QFrame()
+            resp_card.setObjectName('ResponseCard')
+            resp_card_layout = QVBoxLayout(resp_card)
+            resp_card_layout.setContentsMargins(16, 8, 16, 8)
+            resp_card_layout.setSpacing(8)
+            self.resp_tabs = QTabWidget()
+            self.resp_tabs.setObjectName('RespTabs')
+            # Body Tab
+            resp_body_widget = QWidget()
+            resp_body_layout = QVBoxLayout(resp_body_widget)
+            resp_body_layout.setContentsMargins(0, 0, 0, 0)
+            resp_body_layout.setSpacing(4)
+            self.resp_status_label = QLineEdit('Click Send to get a response')
+            self.resp_status_label.setReadOnly(True)
+            self.resp_status_label.setFrame(False)
+            self.resp_status_label.setStyleSheet('background: transparent; border: none; font-weight: bold; color: #333;')
+            status_row = QHBoxLayout()
+            status_row.addWidget(self.resp_status_label)
+            status_row.addStretch()
+            self.save_resp_btn = QPushButton('Save Response to File')
+            self.clear_resp_btn = QPushButton('Clear Response')
+            status_row.addWidget(self.save_resp_btn)
+            status_row.addWidget(self.clear_resp_btn)
+            resp_body_layout.addLayout(status_row)
+            self.resp_body_edit = CodeEditor()
+            self.resp_body_edit.setReadOnly(True)
+            self.resp_json_highlighter = JsonHighlighter(self.resp_body_edit.document())
+            resp_body_layout.addWidget(self.resp_body_edit)
+            resp_body_widget.setLayout(resp_body_layout)
+            self.resp_tabs.addTab(resp_body_widget, 'Body')
+            # Headers Tab
+            resp_headers_widget = QTextEdit()
+            resp_headers_widget.setReadOnly(True)
+            self.resp_tabs.addTab(resp_headers_widget, 'Headers')
+            resp_card_layout.addWidget(self.resp_tabs)
+            resp_card.setLayout(resp_card_layout)
+            self.resp_loading_overlay = RespLoadingOverlay(resp_card, mainwin=self)
+            vertical_splitter.addWidget(self.req_tabs)
+            vertical_splitter.addWidget(resp_card)
+            vertical_splitter.setSizes([500, 300])
+            # 添加到右侧主区
+            layout = self.right_widget.layout()
+            layout.addWidget(vertical_splitter)
+            self.vertical_splitter = vertical_splitter
+            self.save_resp_btn.clicked.connect(self.save_response_to_file)
+            self.clear_resp_btn.clicked.connect(self.clear_response)
+        
+        # 创建新的请求编辑器
+        req_editor = RequestEditor(self)
+        self.req_tabs.addTab(req_editor, 'New Request')
+        self.req_tabs.setCurrentWidget(req_editor)
+        self.log_info('Create new request from File menu')
 
     def create_collection(self):
         from PyQt5.QtWidgets import QInputDialog, QMessageBox
