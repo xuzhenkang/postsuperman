@@ -92,12 +92,8 @@ class MainWindow(QWidget):
         # 菜单栏
         menubar = QMenuBar(self)
         file_menu = menubar.addMenu('File')
-        import_action = QAction('Import', self)
-        export_action = QAction('Export', self)
         save_all_action = QAction('Save All', self)
         exit_action = QAction('Exit', self)
-        file_menu.addAction(import_action)
-        file_menu.addAction(export_action)
         file_menu.addAction(save_all_action)
         file_menu.addSeparator()
         file_menu.addAction(exit_action)
@@ -112,8 +108,6 @@ class MainWindow(QWidget):
         help_menu.addAction(contact_action)
         menubar.addMenu(help_menu)
         main_layout.setMenuBar(menubar)
-        import_action.triggered.connect(self.import_request_dialog)
-        export_action.triggered.connect(self.export_data)
         exit_action.triggered.connect(self.close)
         about_action.triggered.connect(self.show_about)
         doc_action.triggered.connect(self.show_doc)
@@ -1013,7 +1007,7 @@ Version: 1.0.0'''
 
     def create_collection(self):
         from PyQt5.QtWidgets import QInputDialog, QMessageBox
-        name, ok = QInputDialog.getText(self, '新建 Collection', '请输入集合名称:')
+        name, ok = QInputDialog.getText(self, 'New Collection', 'Enter collection name:')
         if not ok or not name.strip():
             return
         name = name.strip()
@@ -1023,16 +1017,15 @@ Version: 1.0.0'''
                     return True
             return False
         if is_duplicate(self.collection_tree, name):
-            self.log_warning(f'新建Collection失败: 已存在名为"{name}"的集合')
-            QMessageBox.warning(self, '新建失败', f'已存在名为"{name}"的集合！')
+            self.log_warning(f'Create Collection failed: A collection named "{name}" already exists')
+            QMessageBox.warning(self, 'Create Failed', f'A collection named "{name}" already exists!')
             return
         item = QTreeWidgetItem(self.collection_tree, [name])
         item.setIcon(0, self.folder_icon)
-        QTreeWidgetItem(item, ['GET 示例请求'])
-        self.left_tab.addTab(collections_panel, 'Collections')
+        QTreeWidgetItem(item, ['GET Example Request'])
         # 新建后立即保存到collections.json
         self.save_all()
-        self.log_info(f'新建Collection: "{name}"')
+        self.log_info(f'Create Collection: "{name}"')
 
     def show_collection_menu(self, pos):
         from PyQt5.QtWidgets import QMenu, QMessageBox, QInputDialog
@@ -1053,21 +1046,21 @@ Version: 1.0.0'''
         # 菜单生成
         if is_collection(item):
             new_collection_action = menu.addAction('New Collection')
-            new_req_action = menu.addAction('新建 Request')
+            new_req_action = menu.addAction('New Request')
             menu.addSeparator()
-            rename_action = menu.addAction('重命名')
-            delete_action = menu.addAction('删除')
+            rename_action = menu.addAction('Rename')
+            delete_action = menu.addAction('Delete')
         elif is_request(item):
             new_collection_action = None
-            rename_action = menu.addAction('重命名')
-            delete_action = menu.addAction('删除')
+            rename_action = menu.addAction('Rename')
+            delete_action = menu.addAction('Delete')
         else:
             new_collection_action = None
             rename_action = None
             delete_action = None
         action = menu.exec_(self.collection_tree.viewport().mapToGlobal(pos))
         if new_collection_action and action == new_collection_action:
-            name, ok = QInputDialog.getText(self, 'New Collection', '请输入集合名称:')
+            name, ok = QInputDialog.getText(self, 'New Collection', 'Enter collection name:')
             if not ok or not name.strip():
                 return
             name = name.strip()
@@ -1075,7 +1068,7 @@ Version: 1.0.0'''
             for i in range(item.childCount()):
                 sibling = item.child(i)
                 if sibling and sibling.text(0) == name:
-                    QMessageBox.warning(self, '新建失败', f'该集合下已存在名为"{name}"的集合！')
+                    QMessageBox.warning(self, 'Create Failed', f'A collection named "{name}" already exists in this collection!')
                     return
             new_item = QTreeWidgetItem(item, [name])
             new_item.setIcon(0, self.folder_icon)
@@ -1084,18 +1077,18 @@ Version: 1.0.0'''
             self.save_all()
             return
         elif 'new_req_action' in locals() and new_req_action and action == new_req_action:
-            name, ok = QInputDialog.getText(self, '新建 Request', '请输入请求名称:')
+            name, ok = QInputDialog.getText(self, 'New Request', 'Enter request name:')
             if not ok or not name.strip():
                 return
             name = name.strip()
             if '*' in name:
-                QMessageBox.warning(self, '非法名称', '请求名称不能包含星号*字符！')
+                QMessageBox.warning(self, 'Invalid Name', 'Request name cannot contain asterisk (*) character!')
                 return
             # 检查重名（只在该集合下）
             for i in range(item.childCount()):
                 sibling = item.child(i)
                 if sibling and sibling.text(0) == name:
-                    QMessageBox.warning(self, '新建失败', f'该集合下已存在名为"{name}"的请求！')
+                    QMessageBox.warning(self, 'Create Failed', f'A request named "{name}" already exists in this collection!')
                     return
             new_item = QTreeWidgetItem(item, [name])
             new_item.setIcon(0, self.file_icon)
@@ -1104,25 +1097,25 @@ Version: 1.0.0'''
             self.save_all()
             return
         elif rename_action and action == rename_action:
-            name, ok = QInputDialog.getText(self, '重命名', '请输入新名称:', text=item.text(0))
+            name, ok = QInputDialog.getText(self, 'Rename', 'Enter new name:', text=item.text(0))
             if not ok or not name.strip():
                 return
             name = name.strip()
             if '*' in name:
-                QMessageBox.warning(self, '非法名称', '请求名称不能包含星号*字符！')
+                QMessageBox.warning(self, 'Invalid Name', 'Request name cannot contain asterisk (*) character!')
                 return
             if item.parent() is None:
                 for i in range(self.collection_tree.topLevelItemCount()):
                     if self.collection_tree.topLevelItem(i) != item and self.collection_tree.topLevelItem(i).text(0) == name:
-                        self.log_warning(f'重命名失败: 已存在名为"{name}"的集合')
-                        QMessageBox.warning(self, '重命名失败', f'已存在名为"{name}"的集合！')
+                        self.log_warning(f'Rename failed: A collection named "{name}" already exists')
+                        QMessageBox.warning(self, 'Rename Failed', f'A collection named "{name}" already exists!')
                         return
             else:
                 parent = item.parent()
                 for i in range(parent.childCount()):
                     if parent.child(i) != item and parent.child(i).text(0) == name:
-                        self.log_warning(f'重命名失败: 该集合下已存在名为"{name}"的请求')
-                        QMessageBox.warning(self, '重命名失败', f'该集合下已存在名为"{name}"的请求！')
+                        self.log_warning(f'Rename failed: A request named "{name}" already exists in this collection')
+                        QMessageBox.warning(self, 'Rename Failed', f'A request named "{name}" already exists in this collection!')
                         return
             old_name = item.text(0)
             item.setText(0, name)
@@ -1134,30 +1127,30 @@ Version: 1.0.0'''
             # 如果是Request节点，同步更新右侧标签页
             if item.childCount() == 0 and item.parent() is not None:
                 self.update_tab_title(old_name, name)
-                self.log_info(f'重命名Request: "{old_name}" -> "{name}"')
+                self.log_info(f'Rename Request: "{old_name}" -> "{name}"')
             else:
-                self.log_info(f'重命名Collection: "{old_name}" -> "{name}"')
+                self.log_info(f'Rename Collection: "{old_name}" -> "{name}"')
             # 重命名后立即保存到collections.json
             self.save_all()
         elif delete_action and action == delete_action:
             if item.parent() is None:
-                reply = QMessageBox.question(self, '删除集合', f'确定要删除集合"{item.text(0)}"吗？', QMessageBox.Yes | QMessageBox.No)
+                reply = QMessageBox.question(self, 'Delete Collection', f'Are you sure you want to delete collection "{item.text(0)}"?', QMessageBox.Yes | QMessageBox.No)
                 if reply == QMessageBox.Yes:
                     collection_name = item.text(0)
                     idx = self.collection_tree.indexOfTopLevelItem(item)
                     self.collection_tree.takeTopLevelItem(idx)
                     # 删除后立即保存到collections.json
                     self.save_all()
-                    self.log_info(f'删除Collection: "{collection_name}"')
+                    self.log_info(f'Delete Collection: "{collection_name}"')
             else:
-                reply = QMessageBox.question(self, '删除请求', f'确定要删除请求"{item.text(0)}"吗？', QMessageBox.Yes | QMessageBox.No)
+                reply = QMessageBox.question(self, 'Delete Request', f'Are you sure you want to delete request "{item.text(0)}"?', QMessageBox.Yes | QMessageBox.No)
                 if reply == QMessageBox.Yes:
                     request_name = item.text(0)
                     parent = item.parent()
                     parent.removeChild(item)
                     # 删除后立即保存到collections.json
                     self.save_all()
-                    self.log_info(f'删除Request: "{request_name}"')
+                    self.log_info(f'Delete Request: "{request_name}"')
 
     def update_tab_title(self, old_name, new_name):
         """更新标签页标题，同步重命名操作"""
