@@ -34,6 +34,7 @@ def build_exe():
         "--icon=ui/app.ico",  # 设置图标（如果有的话）
         "--add-data=requirements.txt;.",  # 包含requirements.txt
         "--add-data=ui/app.ico;.",  # 将图标文件作为数据文件包含
+        "--add-data=docs/user_manual.md;docs",  # 将用户手册文件包含到docs目录
         "--clean",  # 清理临时文件
         "main.py"  # 主程序文件
     ]

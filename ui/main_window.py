@@ -467,7 +467,293 @@ Version: 1.0.0'''
         dlg.exec_()
 
     def show_doc(self):
-        QMessageBox.information(self, 'Documentation', 'Visit the official documentation site for usage instructions.')
+        """显示用户手册对话框"""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel, QScrollArea, QWidget
+        from PyQt5.QtCore import Qt
+        from PyQt5.QtGui import QFont, QTextCursor
+        
+        dlg = QDialog(self)
+        dlg.setWindowTitle('PostSuperman 用户手册')
+        dlg.setMinimumSize(800, 600)
+        dlg.resize(1000, 700)
+        
+        layout = QVBoxLayout(dlg)
+        
+        # 标题
+        title_label = QLabel('📖 PostSuperman 用户使用手册')
+        title_label.setStyleSheet('font-size: 20px; font-weight: bold; color: #333; margin: 10px;')
+        title_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # 创建滚动区域
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        # 创建内容容器
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(20, 10, 20, 10)
+        
+        # 读取用户手册内容
+        manual_content = self.get_user_manual_content()
+        
+        # 创建文本编辑器显示手册内容
+        manual_edit = QTextEdit()
+        manual_edit.setReadOnly(True)
+        
+        # 将Markdown内容转换为HTML格式
+        html_content = self.convert_markdown_to_html(manual_content)
+        manual_edit.setHtml(html_content)
+        
+        manual_edit.setStyleSheet('''
+            QTextEdit {
+                font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+                background-color: #ffffff;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                padding: 15px;
+            }
+        ''')
+        
+        # 设置字体
+        font = QFont("Microsoft YaHei", 10)
+        manual_edit.setFont(font)
+        
+        content_layout.addWidget(manual_edit)
+        
+        # 设置滚动区域的内容
+        scroll_area.setWidget(content_widget)
+        layout.addWidget(scroll_area)
+        
+        # 底部按钮
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        # 复制按钮
+        copy_btn = QPushButton('📋 复制到剪贴板')
+        copy_btn.setFixedWidth(150)
+        copy_btn.clicked.connect(lambda: self.copy_manual_to_clipboard(manual_content, copy_btn))
+        
+        # 关闭按钮
+        close_btn = QPushButton('关闭')
+        close_btn.setFixedWidth(100)
+        close_btn.clicked.connect(dlg.accept)
+        
+        btn_layout.addWidget(copy_btn)
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+        
+        dlg.exec_()
+    
+    def get_user_manual_content(self):
+        """从docs/user_manual.md文件读取用户手册内容"""
+        import os
+        import sys
+        
+        # 获取docs目录的路径
+        if getattr(sys, 'frozen', False):
+            # 如果是打包后的exe文件
+            base_path = sys._MEIPASS
+            docs_dir = os.path.join(base_path, 'docs')
+        else:
+            # 如果是开发环境
+            docs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'docs')
+        
+        manual_file = os.path.join(docs_dir, 'user_manual.md')
+        
+        try:
+            # 尝试读取文件
+            with open(manual_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return content
+        except FileNotFoundError:
+            # 如果文件不存在，返回默认内容
+            return """# PostSuperman 用户使用手册
+
+## 文件未找到
+
+用户手册文件 `docs/user_manual.md` 未找到。
+
+请确保文件存在于正确的位置。
+
+---
+
+**PostSuperman** - 让API调试更简单！
+
+如有问题或建议，请联系：xuzhenkang@hotmail.com"""
+        except Exception as e:
+            # 如果读取失败，返回错误信息
+            return f"""# PostSuperman 用户使用手册
+
+## 读取文件失败
+
+读取用户手册文件时发生错误：{str(e)}
+
+请检查文件权限和编码格式。
+
+---
+
+**PostSuperman** - 让API调试更简单！
+
+如有问题或建议，请联系：xuzhenkang@hotmail.com"""
+
+    def convert_markdown_to_html(self, markdown_text):
+        """将Markdown文本转换为HTML格式"""
+        import re
+        
+        # 定义HTML样式
+        html_style = '''
+        <style>
+            body { font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif; line-height: 1.6; }
+            h1 { color: #2c3e50; font-size: 24px; margin: 20px 0 15px 0; border-bottom: 2px solid #3498db; padding-bottom: 5px; }
+            h2 { color: #34495e; font-size: 20px; margin: 18px 0 12px 0; border-bottom: 1px solid #bdc3c7; padding-bottom: 3px; }
+            h3 { color: #2c3e50; font-size: 18px; margin: 15px 0 10px 0; }
+            h4 { color: #34495e; font-size: 16px; margin: 12px 0 8px 0; }
+            p { margin: 8px 0; }
+            ul, ol { margin: 8px 0; padding-left: 25px; }
+            li { margin: 4px 0; }
+            code { background-color: #f8f9fa; padding: 2px 4px; border-radius: 3px; font-family: "Consolas", "Monaco", monospace; }
+            pre { background-color: #f8f9fa; padding: 10px; border-radius: 5px; border-left: 4px solid #3498db; margin: 10px 0; }
+            blockquote { border-left: 4px solid #bdc3c7; padding-left: 15px; margin: 10px 0; color: #7f8c8d; }
+            table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+            th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+            th { background-color: #f8f9fa; font-weight: bold; }
+            .highlight { background-color: #fff3cd; padding: 2px 4px; border-radius: 3px; }
+            .success { color: #28a745; }
+            .warning { color: #ffc107; }
+            .error { color: #dc3545; }
+            .info { color: #17a2b8; }
+        </style>
+        '''
+        
+        # 开始转换
+        html = markdown_text
+        
+        # 处理标题
+        html = re.sub(r'^# (.*?)$', r'<h1>\1</h1>', html, flags=re.MULTILINE)
+        html = re.sub(r'^## (.*?)$', r'<h2>\1</h2>', html, flags=re.MULTILINE)
+        html = re.sub(r'^### (.*?)$', r'<h3>\1</h3>', html, flags=re.MULTILINE)
+        html = re.sub(r'^#### (.*?)$', r'<h4>\1</h4>', html, flags=re.MULTILINE)
+        
+        # 处理粗体和斜体
+        html = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html)
+        html = re.sub(r'\*(.*?)\*', r'<em>\1</em>', html)
+        
+        # 处理代码块
+        html = re.sub(r'```(.*?)```', r'<pre><code>\1</code></pre>', html, flags=re.DOTALL)
+        
+        # 处理行内代码
+        html = re.sub(r'`(.*?)`', r'<code>\1</code>', html)
+        
+        # 处理列表
+        # 有序列表
+        html = re.sub(r'^(\d+)\. (.*?)$', r'<li>\2</li>', html, flags=re.MULTILINE)
+        # 无序列表
+        html = re.sub(r'^- (.*?)$', r'<li>\1</li>', html, flags=re.MULTILINE)
+        
+        # 处理表格
+        def process_table(match):
+            lines = match.group(1).strip().split('\n')
+            if len(lines) < 2:
+                return match.group(0)
+            
+            # 处理表头
+            header_cells = [cell.strip() for cell in lines[0].split('|')[1:-1]]
+            header_html = '<tr>' + ''.join(f'<th>{cell}</th>' for cell in header_cells) + '</tr>'
+            
+            # 处理数据行
+            data_html = ''
+            for line in lines[2:]:
+                cells = [cell.strip() for cell in line.split('|')[1:-1]]
+                data_html += '<tr>' + ''.join(f'<td>{cell}</td>' for cell in cells) + '</tr>'
+            
+            return f'<table>{header_html}{data_html}</table>'
+        
+        html = re.sub(r'\|.*\|.*\n\|.*\|.*\n((?:\|.*\|.*\n)*)', process_table, html)
+        
+        # 处理ASCII表格（主界面布局等）
+        def process_ascii_table(match):
+            ascii_table = match.group(0)
+            # 将ASCII表格转换为HTML表格
+            lines = ascii_table.strip().split('\n')
+            html_table = '<table style="border-collapse: collapse; width: 100%; margin: 10px 0; font-family: monospace;">'
+            
+            for line in lines:
+                if line.startswith('┌') or line.startswith('├') or line.startswith('└'):
+                    # 分隔线，跳过
+                    continue
+                elif line.startswith('│'):
+                    # 内容行
+                    cells = line.split('│')[1:-1]  # 去掉首尾的│
+                    html_table += '<tr>'
+                    for cell in cells:
+                        cell_content = cell.strip()
+                        if cell_content:
+                            html_table += f'<td style="border: 1px solid #ddd; padding: 8px; text-align: left;">{cell_content}</td>'
+                        else:
+                            html_table += '<td style="border: 1px solid #ddd; padding: 8px; text-align: left;">&nbsp;</td>'
+                    html_table += '</tr>'
+            
+            html_table += '</table>'
+            return html_table
+        
+        # 匹配ASCII表格模式
+        html = re.sub(r'┌[─┐]*┐\n(?:│[^│]*│\n)*└[─┘]*┘', process_ascii_table, html)
+        
+        # 处理分隔线
+        html = re.sub(r'^---$', r'<hr>', html, flags=re.MULTILINE)
+        
+        # 处理段落
+        # 将连续的空行转换为段落分隔
+        html = re.sub(r'\n\n+', r'</p><p>', html)
+        
+        # 处理特殊标记
+        html = re.sub(r'✅', r'<span class="success">✅</span>', html)
+        html = re.sub(r'⚠️', r'<span class="warning">⚠️</span>', html)
+        html = re.sub(r'❌', r'<span class="error">❌</span>', html)
+        html = re.sub(r'ℹ️', r'<span class="info">ℹ️</span>', html)
+        
+        # 包装在HTML结构中
+        html = f'''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            {html_style}
+        </head>
+        <body>
+            <p>{html}</p>
+        </body>
+        </html>
+        '''
+        
+        return html
+
+    def copy_manual_to_clipboard(self, content, button):
+        """复制用户手册到剪贴板"""
+        from PyQt5.QtWidgets import QApplication
+        from PyQt5.QtCore import QTimer
+        
+        clipboard = QApplication.clipboard()
+        clipboard.setText(content)
+        
+        # 改变按钮文本为"已复制"
+        button.setText('✅ 已复制')
+        button.setEnabled(False)
+        
+        # 2秒后恢复按钮状态
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        def restore_button():
+            button.setText('📋 复制到剪贴板')
+            button.setEnabled(True)
+            timer.deleteLater()
+        timer.timeout.connect(restore_button)
+        timer.start(2000)  # 2000毫秒 = 2秒
 
     def show_contact(self):
         from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel
