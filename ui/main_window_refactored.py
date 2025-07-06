@@ -81,8 +81,10 @@ class MainWindow(QWidget):
         
     def get_icon_path(self):
         """获取图标文件路径，兼容开发环境和打包后的exe文件"""
+        import sys, os
         if getattr(sys, 'frozen', False):
-            return None
+            # PyInstaller打包后，资源在 _MEIPASS 目录
+            return os.path.join(sys._MEIPASS, 'app.ico')
         else:
             return os.path.join(os.path.dirname(__file__), 'app.ico')
             
