@@ -307,10 +307,30 @@ class RequestEditor(QWidget):
         if hasattr(mainwin, 'collection_tree'):
             sel = mainwin.collection_tree.currentItem()
             if sel and sel.childCount() == 0:
-                name = sel.text(0)
+                # 获取当前Tab的完整路径
                 idx = mainwin.req_tabs.indexOf(self)
                 if idx >= 0:
-                    mainwin.req_tabs.setTabText(idx, name)
+                    current_tab_text = mainwin.req_tabs.tabText(idx)
+                    # 移除星号（如果有）
+                    if current_tab_text.endswith('*'):
+                        current_tab_text = current_tab_text[:-1]
+                    
+                    # 保持原有的完整路径，只更新Request名称部分
+                    if '/' in current_tab_text:
+                        # 有路径的情况：Collection/Request
+                        path_parts = current_tab_text.split('/')
+                        if len(path_parts) >= 2:
+                            collection_path = '/'.join(path_parts[:-1])
+                            request_name = sel.text(0)
+                            new_tab_text = f"{collection_path}/{request_name}"
+                        else:
+                            new_tab_text = current_tab_text
+                    else:
+                        # 没有路径的情况，使用Request名称
+                        new_tab_text = sel.text(0)
+                    
+                    mainwin.req_tabs.setTabText(idx, new_tab_text)
+                
                 # 保存内容到树节点
                 sel.setData(0, Qt.UserRole, self.serialize_request())
             else:
@@ -323,6 +343,8 @@ class RequestEditor(QWidget):
                 idx = mainwin.req_tabs.indexOf(self)
                 if idx >= 0:
                     mainwin.req_tabs.setTabText(idx, name)
+            
+            # 移除星号（如果有）
             idx = mainwin.req_tabs.indexOf(self)
             if idx >= 0:
                 t = mainwin.req_tabs.tabText(idx)

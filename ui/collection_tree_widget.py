@@ -1,5 +1,7 @@
 from PyQt5.QtWidgets import QTreeWidget
 from PyQt5.QtCore import Qt
+import os
+import json
 
 class CollectionTreeWidget(QTreeWidget):
     def __init__(self, parent=None):
@@ -16,16 +18,12 @@ class CollectionTreeWidget(QTreeWidget):
     def dragMoveEvent(self, event):
         """拖拽移动事件"""
         if event.source() == self:
-            # 获取拖拽的源项和目标项
-            source_item = self.currentItem()
+            # 获取拖拽的目标项
             target_item = self.itemAt(event.pos())
             
-            if source_item and target_item and source_item != target_item:
-                # 验证拖拽规则
-                if self._is_valid_drop(source_item, target_item):
-                    event.acceptProposedAction()
-                else:
-                    event.ignore()
+            if target_item:
+                # 简单验证：确保有目标项
+                event.acceptProposedAction()
             else:
                 event.ignore()
         else:
@@ -37,60 +35,105 @@ class CollectionTreeWidget(QTreeWidget):
             event.ignore()
             return
             
-        # 获取拖拽的源项和目标项
-        source_item = self.currentItem()
+        # 获取拖拽的目标项
         target_item = self.itemAt(event.pos())
         
-        if not source_item or not target_item or source_item == target_item:
+        if not target_item:
             event.ignore()
             return
-            
-        # 验证拖拽规则
-        if not self._is_valid_drop(source_item, target_item):
-            event.ignore()
-            return
-            
-        # 检查是否拖拽到自己的子项
-        if self._is_child_of(source_item, target_item):
-            event.ignore()
-            return
-            
-        # 拖拽前记录状态
-        parent_map_before = self._main_window._get_parent_map() if self._main_window else {}
         
         # 让Qt完成默认的拖拽操作
         super().dropEvent(event)
         
-        # 拖拽后处理
+        # 拖拽后处理 - 直接保存，不依赖复杂的键值匹配
         if self._main_window and event.isAccepted():
-            parent_map_after = self._main_window._get_parent_map()
-            moved_items = []
-            
-            # 找出被移动的项
-            for item, parent_before in parent_map_before.items():
-                parent_after = parent_map_after.get(item, None)
-                if parent_before != parent_after:
-                    moved_items.append(item)
-            
-            # 处理被移动的项
-            if moved_items:
-                moved_item = moved_items[0]
-                self._main_window.log_info(f'检测到拖拽: {moved_item.text(0)}')
-                
-                # 更新Tab路径
-                old_paths = self._main_window.get_item_paths_for_tabs(moved_item)
-                self._main_window.update_tabs_after_drag(moved_item, old_paths)
-                
-                # 保存到collections.json
+            try:
+                # 强制保存所有数据
                 self._main_window.save_all()
-                self._main_window.log_info(f'拖拽完成: {moved_item.text(0)}')
+                self._main_window.log_info(f'拖拽完成并立即保存')
+                
+                # 更新所有Tab标签路径 - 重新扫描整个树结构
+                self._main_window.update_all_tabs_after_drag()
+                
+                # 验证保存是否成功
+                user_data_dir = os.path.join(self._main_window._workspace_dir, 'user-data')
+                collections_path = os.path.join(user_data_dir, 'collections.json')
+                
+                if os.path.exists(collections_path):
+                    with open(collections_path, 'r', encoding='utf-8') as f:
+                        saved_data = json.load(f)
+                    
+                    # 统计保存的数据
+                    collections_count = 0
+                    requests_count = 0
+                    
+                    def count_items(items):
+                        nonlocal collections_count, requests_count
+                        for item in items:
+                            if item.get('type') == 'collection':
+                                collections_count += 1
+                                if 'children' in item:
+                                    count_items(item['children'])
+                            elif item.get('type') == 'request':
+                                requests_count += 1
+                    
+                    count_items(saved_data)
+                    
+                    self._main_window.log_info(f'✅ 拖拽持久化成功: {collections_count} 个集合, {requests_count} 个请求')
+                    
+                    # 显示状态栏提示（如果有的话）
+                    if hasattr(self._main_window, 'statusBar'):
+                        self._main_window.statusBar().showMessage(f'拖拽完成并已保存', 3000)
+                else:
+                    self._main_window.log_warning('❌ collections.json 文件未找到，保存可能失败')
+                    if hasattr(self._main_window, 'statusBar'):
+                        self._main_window.statusBar().showMessage('保存失败：文件未创建', 3000)
+                        
+            except Exception as e:
+                self._main_window.log_error(f'❌ 拖拽后保存失败: {e}')
+                if hasattr(self._main_window, 'statusBar'):
+                    self._main_window.statusBar().showMessage(f'保存失败: {str(e)}', 3000)
+    
+    def _find_item_by_key(self, item_key):
+        """根据键找到对应的QTreeWidgetItem"""
+        if not item_key:
+            return None
+        
+        # 解析键
+        path_part = item_key.split(':')[0]
+        path_parts = path_part.split('/')
+        
+        # 从根开始查找
+        for i in range(self.topLevelItemCount()):
+            top_item = self.topLevelItem(i)
+            if top_item.text(0) == path_parts[0]:
+                if len(path_parts) == 1:
+                    return top_item
+                else:
+                    return self._find_item_recursive(top_item, path_parts[1:])
+        
+        return None
+    
+    def _find_item_recursive(self, parent_item, path_parts):
+        """递归查找项"""
+        for i in range(parent_item.childCount()):
+            child = parent_item.child(i)
+            if child.text(0) == path_parts[0]:
+                if len(path_parts) == 1:
+                    return child
+                else:
+                    return self._find_item_recursive(child, path_parts[1:])
+        
+        return None
 
     def _is_valid_drop(self, source_item, target_item):
         """验证拖拽规则"""
         def is_collection(item):
-            return item.childCount() > 0
+            # Collection：有子项或者是顶级项（没有父项）
+            return item.parent() is None or item.childCount() >= 0
             
         def is_request(item):
+            # Request：没有子项且有父项
             return item.childCount() == 0 and item.parent() is not None
             
         source_is_collection = is_collection(source_item)
@@ -112,7 +155,7 @@ class CollectionTreeWidget(QTreeWidget):
             # Request不能拖拽到Request下
             return False
         else:
-            # 其他情况（如顶级项）不允许拖拽
+            # 其他情况不允许拖拽
             return False
 
     def _is_child_of(self, parent, child):

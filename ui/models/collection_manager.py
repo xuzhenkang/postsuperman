@@ -12,7 +12,11 @@ class CollectionManager:
     
     def __init__(self, workspace_dir: str):
         self.workspace_dir = workspace_dir
-        self.collections_file = os.path.join(workspace_dir, 'collections.json')
+        # 确保user-data目录存在
+        user_data_dir = os.path.join(workspace_dir, 'user-data')
+        if not os.path.exists(user_data_dir):
+            os.makedirs(user_data_dir)
+        self.collections_file = os.path.join(user_data_dir, 'collections.json')
         
     def load_collections(self) -> List[Dict]:
         """加载集合数据"""

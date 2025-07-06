@@ -539,15 +539,18 @@ class MainWindow(QWidget):
 
     # 核心功能实现
     def create_new_request(self):
-        """从File菜单创建新请求"""
-        # 弹出对话框让用户输入Request名称
+        self.fix_all_collection_icons()  # 保证所有Collection节点icon正确
         from PyQt5.QtWidgets import QInputDialog, QMessageBox
-        
-        # 获取当前选中的项
         selected_item = self.collection_tree.currentItem()
-        
-        # 如果选中的是Request节点，弹出提示
-        if selected_item and selected_item.childCount() == 0 and selected_item.parent() is not None:
+        print("selected_item:", selected_item, flush=True)
+        if selected_item:
+            print("icon:", selected_item.icon(0), flush=True)
+            print("is_collection_node:", self.is_collection_node(selected_item), flush=True)
+            print("is_request_node:", self.is_request_node(selected_item), flush=True)
+            print("childCount:", selected_item.childCount(), "parent:", selected_item.parent(), flush=True)
+            print("icon==file_icon:", selected_item.icon(0).pixmap(16,16).toImage() == self.file_icon.pixmap(16,16).toImage(), flush=True)
+            print("icon==folder_icon:", selected_item.icon(0).pixmap(16,16).toImage() == self.folder_icon.pixmap(16,16).toImage(), flush=True)
+        if selected_item and self.is_request_node(selected_item):
             QMessageBox.information(
                 self,
                 'Cannot Create Request',
@@ -574,28 +577,24 @@ class MainWindow(QWidget):
         
         # 获取父Collection
         parent_collection = None
-        
         if selected_item:
-            # 如果选中的是Collection，直接使用
-            if selected_item.childCount() > 0:
+            if self.is_collection_node(selected_item):
                 parent_collection = selected_item
-            # 如果选中的是Request，使用其父Collection（这种情况不应该发生，因为前面已经检查过了）
-            elif selected_item.parent() is not None:
+            elif self.is_request_node(selected_item):
                 parent_collection = selected_item.parent()
-        
         # 如果没有选中任何Collection，查找或创建默认Collection
         if parent_collection is None:
             for i in range(self.collection_tree.topLevelItemCount()):
                 item = self.collection_tree.topLevelItem(i)
-                if item.text(0) == 'Default Collection':
+                if self.is_collection_node(item) and item.text(0) == 'Default Collection':
                     parent_collection = item
                     break
-            
-            # 如果没有默认Collection，创建一个
             if parent_collection is None:
-                parent_collection = QTreeWidgetItem(['Default Collection'])
-                parent_collection.setIcon(0, self.folder_icon)
-                self.collection_tree.addTopLevelItem(parent_collection)
+                new_item = QTreeWidgetItem(['Default Collection'])
+                new_item.setIcon(0, self.folder_icon)
+                new_item.setData(0, Qt.UserRole+1, 'collection')
+                self.collection_tree.addTopLevelItem(new_item)
+                parent_collection = new_item
         
         # 检查名称是否在父Collection中重复
         if check_name_exists(parent_collection, request_name):
@@ -657,6 +656,7 @@ class MainWindow(QWidget):
         new_item = QTreeWidgetItem([request_name])
         new_item.setIcon(0, self.file_icon)
         new_item.setData(0, Qt.UserRole, req_data)
+        new_item.setData(0, Qt.UserRole+1, 'request')
         
         if parent_collection:
             # 添加到父集合
@@ -767,7 +767,8 @@ class MainWindow(QWidget):
             return None
         
         # 加载collections.json数据
-        path = os.path.join(self._workspace_dir, 'collections.json')
+        user_data_dir = os.path.join(self._workspace_dir, 'user-data')
+        path = os.path.join(user_data_dir, 'collections.json')
         if not os.path.exists(path):
             return None
         try:
@@ -1186,6 +1187,21 @@ class MainWindow(QWidget):
 
     def on_req_tab_closed(self, idx):
         """Tab关闭事件"""
+        # 检查Tab是否包含星号（未保存）
+        tab_text = self.req_tabs.tabText(idx)
+        if '*' in tab_text:
+            # 显示确认对话框
+            from PyQt5.QtWidgets import QMessageBox
+            choice = QMessageBox.question(
+                self, 
+                'Unsaved Changes', 
+                f'Tab "{tab_text.replace("*", "")}" has unsaved changes.\nDo you want to close it anyway?',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if choice == QMessageBox.No:
+                return  # 取消关闭
+        
         # 移除对应的Response区域
         self.remove_response_for_tab(idx)
         
@@ -1219,11 +1235,49 @@ class MainWindow(QWidget):
         self.ensure_req_tabs()
         """确认关闭标签页"""
         if tab_index >= 0:
+            # 检查Tab是否包含星号（未保存）
+            tab_text = self.req_tabs.tabText(tab_index)
+            if '*' in tab_text:
+                # 显示确认对话框
+                from PyQt5.QtWidgets import QMessageBox
+                choice = QMessageBox.question(
+                    self, 
+                    'Unsaved Changes', 
+                    f'Tab "{tab_text.replace("*", "")}" has unsaved changes.\nDo you want to close it anyway?',
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                if choice == QMessageBox.No:
+                    return  # 取消关闭
+            
             self.req_tabs.removeTab(tab_index)
 
     def close_other_tabs(self, keep_index):
         self.ensure_req_tabs()
         """关闭其他标签页"""
+        # 检查是否有未保存的Tab
+        unsaved_tabs = []
+        for i in range(self.req_tabs.count()):
+            if i != keep_index:
+                tab_text = self.req_tabs.tabText(i)
+                if '*' in tab_text:
+                    unsaved_tabs.append(tab_text.replace("*", ""))
+        
+        if unsaved_tabs:
+            # 显示确认对话框
+            from PyQt5.QtWidgets import QMessageBox
+            tab_list = "\n".join([f"• {tab}" for tab in unsaved_tabs])
+            choice = QMessageBox.question(
+                self, 
+                'Unsaved Changes', 
+                f'The following tabs have unsaved changes:\n{tab_list}\n\nDo you want to close them anyway?',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if choice == QMessageBox.No:
+                return  # 取消关闭
+        
+        # 关闭其他Tab
         for i in range(self.req_tabs.count() - 1, -1, -1):
             if i != keep_index:
                 self.req_tabs.removeTab(i)
@@ -1231,6 +1285,27 @@ class MainWindow(QWidget):
     def close_all_tabs(self):
         self.ensure_req_tabs()
         """关闭所有标签页"""
+        # 检查是否有未保存的Tab
+        unsaved_tabs = []
+        for i in range(self.req_tabs.count()):
+            tab_text = self.req_tabs.tabText(i)
+            if '*' in tab_text:
+                unsaved_tabs.append(tab_text.replace("*", ""))
+        
+        if unsaved_tabs:
+            # 显示确认对话框
+            from PyQt5.QtWidgets import QMessageBox
+            tab_list = "\n".join([f"• {tab}" for tab in unsaved_tabs])
+            choice = QMessageBox.question(
+                self, 
+                'Unsaved Changes', 
+                f'The following tabs have unsaved changes:\n{tab_list}\n\nDo you want to close them all anyway?',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if choice == QMessageBox.No:
+                return  # 取消关闭
+        
         self.req_tabs.clear()
         self.check_and_show_welcome_page()
 
@@ -1257,9 +1332,13 @@ class MainWindow(QWidget):
             if hasattr(self, '_req_worker') and self._req_worker:
                 print("调用RequestWorker.stop()")
                 self._req_worker.stop()
-            # 立即隐藏遮罩层
-            if hasattr(self, 'resp_loading_overlay'):
-                self.resp_loading_overlay.setVisible(False)
+            
+            # 立即隐藏当前Tab的遮罩层
+            current_tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
+            if current_tab_index >= 0 and current_tab_index in self.response_widgets:
+                overlay = self.response_widgets[current_tab_index]['loading_overlay']
+                overlay.setVisible(False)
+            
             print("停止请求完成")
         except Exception as e:
             print(f"停止请求时出错: {e}")
@@ -1287,9 +1366,12 @@ class MainWindow(QWidget):
             if hasattr(self, '_req_worker') and self._req_worker:
                 print("调用RequestWorker.stop()")
                 self._req_worker.stop()
-            # 立即隐藏遮罩层
-            if hasattr(self, 'resp_loading_overlay'):
-                self.resp_loading_overlay.setVisible(False)
+            
+            # 立即隐藏当前Tab的遮罩层
+            current_tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
+            if current_tab_index >= 0 and current_tab_index in self.response_widgets:
+                overlay = self.response_widgets[current_tab_index]['loading_overlay']
+                overlay.setVisible(False)
             print("安全停止请求完成")
             print("Send按钮已立即恢复")
         except Exception as e:
@@ -1298,8 +1380,10 @@ class MainWindow(QWidget):
     # 集合相关功能
     def load_collections(self):
         """加载集合数据"""
-        path = os.path.join(self._workspace_dir, 'collections.json')
+        user_data_dir = os.path.join(self._workspace_dir, 'user-data')
+        path = os.path.join(user_data_dir, 'collections.json')
         if not os.path.exists(path):
+            self.log_info("collections.json 文件不存在，使用默认集合")
             return
         try:
             with open(path, 'r', encoding='utf-8') as f:
@@ -1316,15 +1400,23 @@ class MainWindow(QWidget):
         
         def add_items(parent, nodes):
             for node in nodes:
-                item = QTreeWidgetItem(parent, [node['name']])
                 if node.get('type') == 'collection':
+                    item = QTreeWidgetItem([node.get('name', 'Unnamed Collection')])
                     item.setIcon(0, self.folder_icon)
-                    add_items(item, node.get('children', []) or [])
-                if node.get('type') == 'request':
+                    if parent:
+                        parent.addChild(item)
+                    else:
+                        self.collection_tree.addTopLevelItem(item)
+                    add_items(item, node.get('children', []))
+                elif node.get('type') == 'request':
+                    item = QTreeWidgetItem([node.get('name', 'Unnamed Request')])
                     item.setIcon(0, self.file_icon)
                     item.setData(0, Qt.UserRole, node.get('request', {}))
+                    if parent:
+                        parent.addChild(item)
         
-        add_items(self.collection_tree, data)
+        add_items(None, data)
+        self.collection_tree.expandAll()
 
     def open_collection(self):
         """从File菜单打开集合文件"""
@@ -1386,21 +1478,22 @@ class MainWindow(QWidget):
     def merge_collections(self, new_data):
         """合并新集合到现有集合"""
         def add_collection_to_tree(parent, collection_data):
-            for item in collection_data:
-                if item.get('type') == 'collection':
-                    collection_item = QTreeWidgetItem(parent, [item['name']])
-                    collection_item.setIcon(0, self.folder_icon)
-                    
-                    if 'children' in item:
-                        add_collection_to_tree(collection_item, item['children'])
-                        
-                elif item.get('type') == 'request':
-                    request_item = QTreeWidgetItem(parent, [item['name']])
-                    request_item.setIcon(0, self.file_icon)
-                    if 'request' in item:
-                        request_item.setData(0, Qt.UserRole, item['request'])
-        
-        add_collection_to_tree(self.collection_tree, new_data)
+            item = QTreeWidgetItem([collection_data.get('name', 'Unnamed Collection')])
+            item.setIcon(0, self.folder_icon)
+            if parent:
+                parent.addChild(item)
+            else:
+                self.collection_tree.addTopLevelItem(item)
+            for child in collection_data.get('children', []):
+                if child.get('type') == 'collection':
+                    add_collection_to_tree(item, child)
+                elif child.get('type') == 'request':
+                    req_item = QTreeWidgetItem([child.get('name', 'Unnamed Request')])
+                    req_item.setIcon(0, self.file_icon)
+                    req_item.setData(0, Qt.UserRole, child.get('request', {}))
+                    item.addChild(req_item)
+        for collection in new_data:
+            add_collection_to_tree(None, collection)
 
     def create_collection(self):
         """从File菜单创建新集合"""
@@ -1416,7 +1509,7 @@ class MainWindow(QWidget):
             return False
         
         # 获取集合名称
-        name, ok = QInputDialog.getText(self, 'Create Collection', 'Enter collection name:')
+        name, ok = QInputDialog.getText(self, 'New Collection', 'Enter collection name:')
         if not ok or not name.strip():
             return
         
@@ -1428,9 +1521,10 @@ class MainWindow(QWidget):
             return
         
         # 创建集合节点
-        collection_item = QTreeWidgetItem([name])
-        collection_item.setIcon(0, self.folder_icon)
-        self.collection_tree.addTopLevelItem(collection_item)
+        new_item = QTreeWidgetItem([name])
+        new_item.setIcon(0, self.folder_icon)
+        new_item.setData(0, Qt.UserRole+1, 'collection')
+        self.collection_tree.addTopLevelItem(new_item)
         
         # 保存到collections.json
         self.save_all()
@@ -1514,16 +1608,66 @@ class MainWindow(QWidget):
         return data
 
     def save_all(self):
-        """保存所有数据"""
+        """保存所有数据到collections.json"""
         try:
             data = self.serialize_collections()
-            path = os.path.join(self._workspace_dir, 'collections.json')
+            # 确保user-data目录存在
+            user_data_dir = os.path.join(self._workspace_dir, 'user-data')
+            if not os.path.exists(user_data_dir):
+                os.makedirs(user_data_dir)
+            
+            path = os.path.join(user_data_dir, 'collections.json')
+            
+            # 记录保存前的数据统计
+            total_collections = 0
+            total_requests = 0
+            
+            def count_items(items):
+                nonlocal total_collections, total_requests
+                for item in items:
+                    if item.get('type') == 'collection':
+                        total_collections += 1
+                        if 'children' in item:
+                            count_items(item['children'])
+                    elif item.get('type') == 'request':
+                        total_requests += 1
+            
+            count_items(data)
+            
+            # 立即写入文件
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+            
+            # 强制刷新文件系统缓存
+            if hasattr(os, 'sync'):  # Unix系统
+                os.sync()
+            
             self._unsaved_changes = False
-            self.log_info("保存所有数据成功")
+            self.log_info(f"✅ 数据持久化成功: {total_collections} 个集合, {total_requests} 个请求")
+            
+            # 验证保存的文件
+            if os.path.exists(path):
+                file_size = os.path.getsize(path)
+                self.log_info(f"📁 collections.json 文件大小: {file_size} 字节")
+                
+                # 验证文件内容
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        verify_data = json.load(f)
+                    if len(verify_data) == len(data):
+                        self.log_info("✅ 文件内容验证成功")
+                    else:
+                        self.log_warning("⚠️ 文件内容验证失败：数据长度不匹配")
+                except Exception as verify_e:
+                    self.log_warning(f"⚠️ 文件内容验证失败: {verify_e}")
+            else:
+                self.log_warning("❌ collections.json 文件未创建")
+                
         except Exception as e:
-            self.log_error(f"保存数据失败: {e}")
+            self.log_error(f"❌ 保存数据失败: {e}")
+            import traceback
+            self.log_error(f"错误详情: {traceback.format_exc()}")
+            raise  # 重新抛出异常，让调用者知道保存失败
 
     # 菜单事件处理
     def show_about(self):
@@ -1611,10 +1755,44 @@ Version: 1.0.0'''
         """更新标签页标题"""
         if hasattr(self, 'req_tabs'):
             for i in range(self.req_tabs.count()):
-                if self.req_tabs.tabText(i) == old_name:
-                    self.req_tabs.setTabText(i, new_name)
+                tab_text = self.req_tabs.tabText(i)
+                # 处理包含星号的情况
+                if tab_text.endswith('*'):
+                    tab_text_without_star = tab_text[:-1]
+                else:
+                    tab_text_without_star = tab_text
+                
+                if tab_text_without_star == old_name:
+                    # 保持原有的星号状态
+                    if tab_text.endswith('*'):
+                        self.req_tabs.setTabText(i, new_name + '*')
+                    else:
+                        self.req_tabs.setTabText(i, new_name)
                     break
-        
+    
+    def update_tab_title_for_request_rename(self, old_path, new_path):
+        """专门用于Request重命名时的Tab标题更新（用完整路径替换，兼容星号，遍历所有Tab）"""
+        print(f"调用 update_tab_title_for_request_rename: old_path={old_path}, new_path={new_path}", flush=True)
+        self.ensure_req_tabs()
+        if not hasattr(self, 'req_tabs') or self.req_tabs is None:
+            print("req_tabs is None，跳过Tab标题更新", flush=True)
+            return
+        updated = False
+        for i in range(self.req_tabs.count()):
+            tab_text = self.req_tabs.tabText(i)
+            has_star = tab_text.endswith('*')
+            tab_text_core = tab_text[:-1] if has_star else tab_text
+            if old_path in tab_text_core:
+                new_tab_text = tab_text_core.replace(old_path, new_path)
+                if has_star:
+                    new_tab_text += '*'
+                self.req_tabs.setTabText(i, new_tab_text)
+                print(f'Updated tab after request rename: "{tab_text}" -> "{new_tab_text}" (old_path={old_path}, new_path={new_path})', flush=True)
+                self.log_info(f'Updated tab after request rename: "{tab_text}" -> "{new_tab_text}" (old_path={old_path}, new_path={new_path})')
+                updated = True
+        print(f'update_tab_title_for_request_rename called: old_path={old_path}, new_path={new_path}, updated={updated}', flush=True)
+        self.log_info(f'update_tab_title_for_request_rename called: old_path={old_path}, new_path={new_path}, updated={updated}')
+
     def show_doc(self):
         """显示用户手册对话框"""
         from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel, QScrollArea, QWidget
@@ -1653,7 +1831,7 @@ Version: 1.0.0'''
         manual_edit.setReadOnly(True)
         
         # 将Markdown内容转换为HTML格式
-        html_content = self.convert_markdown_to_html(manual_content)
+        html_content = MarkdownConverter.convert_markdown_to_html(manual_content)
         manual_edit.setHtml(html_content)
         
         manual_edit.setStyleSheet('''
@@ -1808,6 +1986,7 @@ Thank you for using PostSuperman!'''
             # Collection节点右键菜单
             new_collection_action = menu.addAction('New Collection')
             new_req_action = menu.addAction('New Request')
+            new_req_action.triggered.connect(self.create_new_request)
             menu.addSeparator()
             rename_action = menu.addAction('Rename')
             delete_action = menu.addAction('Delete')
@@ -1815,7 +1994,6 @@ Thank you for using PostSuperman!'''
             # Request节点右键菜单
             rename_action = menu.addAction('Rename')
             delete_action = menu.addAction('Delete')
-        
         action = menu.exec_(self.collection_tree.viewport().mapToGlobal(pos))
         
         # 处理空白处的New Collection
@@ -1855,90 +2033,8 @@ Thank you for using PostSuperman!'''
             item.setExpanded(True)
             self.save_all()
             return
-        elif 'new_req_action' in locals() and new_req_action and action == new_req_action:
-            # 弹出对话框让用户输入Request名称
-            from PyQt5.QtWidgets import QInputDialog, QMessageBox
-            
-            # 获取当前选中的项（右键点击的Collection）
-            selected_collection = item
-            
-            # 如果选中的是Request节点，弹出提示
-            if selected_collection and selected_collection.childCount() == 0 and selected_collection.parent() is not None:
-                QMessageBox.information(
-                    self,
-                    'Cannot Create Request',
-                    'Cannot create a request under another request.\n\nPlease select a collection to create a new request.'
-                )
-                return
-            
-            request_name, ok = QInputDialog.getText(
-                self, 
-                'New Request', 
-                'Enter request name:',
-                text='New Request'
-            )
-            
-            if not ok or not request_name.strip():
-                return  # 用户取消或输入为空
-            
-            # 检查名称是否重复
-            def check_name_exists(parent_item, name):
-                for i in range(parent_item.childCount()):
-                    if parent_item.child(i).text(0) == name:
-                        return True
-                return False
-            
-            # 检查名称是否在父Collection中重复
-            if check_name_exists(selected_collection, request_name):
-                QMessageBox.warning(
-                    self, 
-                    'Duplicate Name', 
-                    f'A request named "{request_name}" already exists in this collection!'
-                )
-                return
-            
-            # 确保请求区域已创建
-            self.ensure_req_tabs()
-            
-            # 生成包含Collection路径的Tab标签
-            def get_collection_path(parent_collection):
-                path_parts = []
-                current = parent_collection
-                while current is not None:
-                    path_parts.insert(0, current.text(0))
-                    current = current.parent()
-                return '/'.join(path_parts)
-            
-            collection_path = get_collection_path(selected_collection)
-            full_request_path = f"{collection_path}/{request_name}"
-            
-            # 创建新的请求编辑器
-            from ui.widgets.request_editor import RequestEditor
-            req_editor = RequestEditor(self, req_name=request_name)
-            tab_index = self.req_tabs.addTab(req_editor, full_request_path)
-            self.req_tabs.setCurrentWidget(req_editor)
-            
-            # 为新Tab创建Response区域
-            self.show_response_for_tab(tab_index)
-            
-            # 自动保存新请求到collections.json
-            self.save_new_request_to_collections(req_editor, request_name, selected_collection)
-            
-            # 在树中选中新创建的Request
-            new_request_item = None
-            for i in range(selected_collection.childCount()):
-                child = selected_collection.child(i)
-                if child.text(0) == request_name:
-                    new_request_item = child
-                    break
-            
-            if new_request_item:
-                self.collection_tree.setCurrentItem(new_request_item)
-                self.collection_tree.scrollToItem(new_request_item)
-            
-            self.log_info(f'Create new request "{request_name}" in collection: {selected_collection.text(0)}')
-            return
         elif rename_action and action == rename_action:
+            old_path = self.build_item_path(item)  # 先取旧路径
             name, ok = QInputDialog.getText(self, 'Rename', 'Enter new name:', text=item.text(0))
             if not ok or not name.strip():
                 return
@@ -1959,17 +2055,17 @@ Thank you for using PostSuperman!'''
                         return
             old_name = item.text(0)
             item.setText(0, name)
-            # 重命名后保持图标
-            if item.childCount() == 0:
-                item.setIcon(0, self.file_icon)
-            else:
-                item.setIcon(0, self.folder_icon)
+            # 不再根据 childCount 设置 icon，保持原有 icon 不变
             # 如果是Request节点，同步更新右侧标签页
-            if item.childCount() == 0 and item.parent() is not None:
-                self.update_tab_title(old_name, name)
-                self.log_info(f'Rename Request: "{old_name}" -> "{name}"')
-            else:
-                # 这是Collection节点，需要更新所有相关的Tab标签
+            if self.is_request_node(item):
+                print(f"进入重命名分支，item.text(0)={item.text(0)}", flush=True)
+                print(f"输入的新名字 name={name}", flush=True)
+                new_path = self.build_item_path(item)
+                print(f"old_path(取旧路径)={old_path}", flush=True)
+                print(f"new_path(取新路径)={new_path}", flush=True)
+                self.update_tab_title_for_request_rename(old_path, new_path)
+                self.log_info(f'Rename Request: "{old_path}" -> "{new_path}"')
+            elif self.is_collection_node(item):
                 self.update_tabs_for_collection_rename(old_name, name)
                 self.log_info(f'Rename Collection: "{old_name}" -> "{name}"')
             self.save_all()
@@ -2066,6 +2162,64 @@ Thank you for using PostSuperman!'''
                             self.req_tabs.setTabText(i, new_tab_text)
                             self.log_info(f'Updated tab after drag: "{tab_text}" -> "{new_tab_text}"')
                             break
+
+    def update_all_tabs_after_drag(self):
+        """拖拽后更新所有Tab路径 - 重新扫描整个树结构"""
+        if not hasattr(self, 'req_tabs') or self.req_tabs is None:
+            return
+        
+        # 遍历所有Tab，重新构建路径
+        for i in range(self.req_tabs.count()):
+            tab_text = self.req_tabs.tabText(i)
+            
+            # 提取请求名称（最后一个斜杠后的部分）
+            if '/' in tab_text:
+                request_name = tab_text.split('/')[-1]
+                
+                # 在树中查找这个请求
+                found_item = self.find_request_in_tree(request_name)
+                if found_item:
+                    # 重新构建完整路径
+                    new_path = self.build_item_path(found_item)
+                    new_tab_text = new_path
+                    
+                    if new_tab_text != tab_text:
+                        self.req_tabs.setTabText(i, new_tab_text)
+                        self.log_info(f'Updated tab after drag: "{tab_text}" -> "{new_tab_text}"')
+
+    def find_request_in_tree(self, request_name):
+        """在树中查找指定名称的请求"""
+        def search_item(item):
+            # 检查当前项
+            if item.text(0) == request_name and item.childCount() == 0:
+                return item
+            
+            # 递归搜索子项
+            for i in range(item.childCount()):
+                result = search_item(item.child(i))
+                if result:
+                    return result
+            return None
+        
+        # 搜索所有顶级项
+        for i in range(self.collection_tree.topLevelItemCount()):
+            result = search_item(self.collection_tree.topLevelItem(i))
+            if result:
+                return result
+        
+        return None
+
+    def build_item_path(self, item):
+        """构建项的完整路径"""
+        path_parts = []
+        current = item
+        
+        # 向上遍历到根
+        while current is not None:
+            path_parts.insert(0, current.text(0))
+            current = current.parent()
+        
+        return '/'.join(path_parts)
                             
     def get_request_name_from_path(self, path):
         """从路径中提取请求名称"""
@@ -2120,284 +2274,297 @@ Thank you for using PostSuperman!'''
             event.accept()
 
     def import_request_dialog(self):
-        """导入请求对话框"""
-        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton, QButtonGroup, QPushButton, QTextEdit, QFileDialog, QMessageBox
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QRadioButton, QButtonGroup, QTextEdit, QPushButton, QLabel, QFileDialog, QWidget, QMessageBox, QTableWidgetItem
         from PyQt5.QtCore import Qt
-        
-        dialog = QDialog(self)
-        dialog.setWindowTitle('Import Request')
-        dialog.setModal(True)
-        dialog.resize(600, 400)
-        
-        layout = QVBoxLayout(dialog)
-        
-        # 导入方式选择
-        method_label = QLabel('Import Method:')
-        layout.addWidget(method_label)
-        
-        curl_radio = QRadioButton('From cURL command')
-        file_radio = QRadioButton('From file')
+        import json
+        dlg = QDialog(self)
+        dlg.setWindowTitle('Import Request')
+        dlg.setMinimumWidth(400)
+        layout = QVBoxLayout(dlg)
+        # 单选按钮
+        radio_row = QHBoxLayout()
+        curl_radio = QRadioButton('from cURL')
+        file_radio = QRadioButton('from File')
+        radio_group = QButtonGroup(dlg)
+        radio_group.addButton(curl_radio)
+        radio_group.addButton(file_radio)
         curl_radio.setChecked(True)
-        
-        method_layout = QHBoxLayout()
-        method_layout.addWidget(curl_radio)
-        method_layout.addWidget(file_radio)
-        method_layout.addStretch()
-        layout.addLayout(method_layout)
-        
-        # cURL输入区域
-        curl_label = QLabel('cURL Command:')
-        layout.addWidget(curl_label)
-        
-        curl_text = QTextEdit()
-        curl_text.setMaximumHeight(100)
-        layout.addWidget(curl_text)
-        
-        # 文件选择区域
-        file_label = QLabel('File Path:')
-        file_label.setVisible(False)
+        radio_row.addWidget(curl_radio)
+        radio_row.addWidget(file_radio)
+        radio_row.addStretch()
+        layout.addLayout(radio_row)
+        # cURL输入区
+        curl_widget = QWidget()
+        curl_layout = QVBoxLayout(curl_widget)
+        curl_layout.setContentsMargins(0,0,0,0)
+        curl_edit = QTextEdit()
+        curl_edit.setPlaceholderText('Paste your cURL command here...')
+        curl_layout.addWidget(curl_edit)
+        curl_import_btn = QPushButton('Import')
+        curl_layout.addWidget(curl_import_btn)
         # File选择区
         file_widget = QWidget()
         file_layout = QVBoxLayout(file_widget)
-        file_layout.setContentsMargins(0, 0, 0, 0)
+        file_layout.setContentsMargins(0,0,0,0)
         file_select_btn = QPushButton('touch to select file')
         file_select_btn.setFixedHeight(80)
         file_select_btn.setStyleSheet('font-size:18px; color:#1976d2; background: #f5f5f5; border:1px dashed #1976d2;')
         file_layout.addStretch()
         file_layout.addWidget(file_select_btn, alignment=Qt.AlignCenter)
         file_layout.addStretch()
+        # 区域切换
+        stack = QVBoxLayout()
+        stack.addWidget(curl_widget)
+        stack.addWidget(file_widget)
+        layout.addLayout(stack)
+        curl_widget.setVisible(True)
         file_widget.setVisible(False)
-        layout.addWidget(file_widget)
-        
-        # 按钮
-        button_layout = QHBoxLayout()
-        import_btn = QPushButton('Import')
-        cancel_btn = QPushButton('Cancel')
-        button_layout.addStretch()
-        button_layout.addWidget(import_btn)
-        button_layout.addWidget(cancel_btn)
-        layout.addLayout(button_layout)
-        
-        # 事件处理
         def on_radio_changed():
             if curl_radio.isChecked():
-                curl_text.setVisible(True)
+                curl_widget.setVisible(True)
                 file_widget.setVisible(False)
             else:
-                curl_text.setVisible(False)
+                curl_widget.setVisible(False)
                 file_widget.setVisible(True)
-        
         curl_radio.toggled.connect(on_radio_changed)
         file_radio.toggled.connect(on_radio_changed)
-        
+        # cURL导入逻辑
         def import_curl():
-            curl_command = curl_text.toPlainText().strip()
-            if not curl_command:
-                QMessageBox.warning(dialog, 'Error', 'Please enter a cURL command!')
+            curl_cmd = curl_edit.toPlainText().strip()
+            if not curl_cmd:
                 return
             
-            try:
-                # 解析cURL命令
-                import shlex
-                args = shlex.split(curl_command)
-                
-                # 提取URL
-                url = None
-                method = 'GET'
-                headers = {}
-                data = None
-                
-                i = 1  # 跳过curl
-                while i < len(args):
-                    arg = args[i]
-                    if arg.startswith('-X') or arg.startswith('--request'):
-                        if i + 1 < len(args):
-                            method = args[i + 1]
-                            i += 2
-                        else:
-                            i += 1
-                    elif arg.startswith('-H') or arg.startswith('--header'):
-                        if i + 1 < len(args):
-                            header = args[i + 1]
-                            if ':' in header:
-                                key, value = header.split(':', 1)
-                                headers[key.strip()] = value.strip()
-                            i += 2
-                        else:
-                            i += 1
-                    elif arg.startswith('-d') or arg.startswith('--data'):
-                        if i + 1 < len(args):
-                            data = args[i + 1]
-                            i += 2
-                        else:
-                            i += 1
-                    elif not arg.startswith('-'):
-                        url = arg
-                        i += 1
-                    else:
-                        i += 1
-                
-                if not url:
-                    QMessageBox.warning(dialog, 'Error', 'No URL found in cURL command!')
-                    return
-                
-                # 创建新请求
-                self.create_new_request()
+            # 解析cURL命令
+            import shlex
+            tokens = shlex.split(curl_cmd)
+            method = 'GET'
+            url = ''
+            headers = []
+            data = None
+            i = 0
+            while i < len(tokens):
+                t = tokens[i]
+                if t.lower() == 'curl':
+                    i += 1
+                    continue
+                if t == '-X' and i+1 < len(tokens):
+                    method = tokens[i+1].upper()
+                    i += 2
+                    continue
+                if t == '-H' and i+1 < len(tokens):
+                    kv = tokens[i+1]
+                    if ':' in kv:
+                        k, v = kv.split(':', 1)
+                        headers.append((k.strip(), v.strip()))
+                    i += 2
+                    continue
+                if t in ('--data', '--data-raw', '--data-binary', '--data-urlencode') and i+1 < len(tokens):
+                    data = tokens[i+1]
+                    i += 2
+                    continue
+                if not t.startswith('-') and not url:
+                    url = t
+                    i += 1
+                    continue
+                i += 1
+            
+            # 合并默认headers
+            default_headers = {'Cache-Control': 'no-cache', 'Content-Type': 'application/json'}
+            header_dict = {k.lower(): v for k, v in headers}
+            for dk, dv in default_headers.items():
+                if dk.lower() not in header_dict:
+                    headers.append((dk, dv))
+            
+            # 构建请求数据
+            req_data = {
+                'method': method,
+                'url': url,
+                'headers': [{'key': k, 'value': v} for k, v in headers],
+                'params': [],
+                'body_type': 'raw' if data else 'none',
+                'body': data if data else '',
+                'raw_type': 'JSON'
+            }
+            
+            # 弹出选择对话框
+            from PyQt5.QtWidgets import QMessageBox
+            choice = QMessageBox.question(self, '导入方式', '导入到当前Request还是新建Request导入？\n选择"是"将覆盖当前，选择"否"将新建Request导入。', QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, QMessageBox.Cancel)
+            if choice == QMessageBox.Cancel:
+                return
+            
+            mainwin = self.window()
+            from ui.widgets.request_editor import RequestEditor
+            
+            if choice == QMessageBox.Yes:
+                # 覆盖当前Request
                 current_editor = self.req_tabs.currentWidget()
                 if current_editor:
-                    current_editor.method_combo.setCurrentText(method)
-                    current_editor.url_edit.setText(url)
-                    
-                    # 设置headers
-                    if headers:
-                        current_editor.headers_table.setRowCount(len(headers) + 1)
-                        for i, (key, value) in enumerate(headers.items()):
-                            current_editor.headers_table.setItem(i, 1, QTableWidgetItem(key))
-                            current_editor.headers_table.setItem(i, 2, QTableWidgetItem(value))
-                    
-                    # 设置body
-                    if data:
+                    current_editor.method_combo.setCurrentText(req_data.get('method', 'GET'))
+                    current_editor.url_edit.setText(req_data.get('url', ''))
+                    # Headers
+                    current_editor.headers_table.setRowCount(1)
+                    for i, h in enumerate(req_data.get('headers', [])):
+                        if i >= current_editor.headers_table.rowCount()-1:
+                            current_editor.headers_table.insertRow(current_editor.headers_table.rowCount())
+                            current_editor.add_table_row(current_editor.headers_table, current_editor.headers_table.rowCount()-1)
+                        current_editor.headers_table.setItem(i, 1, QTableWidgetItem(h.get('key', '')))
+                        current_editor.headers_table.setItem(i, 2, QTableWidgetItem(h.get('value', '')))
+                    current_editor.refresh_table_widgets(current_editor.headers_table)
+                    # Body
+                    if req_data.get('body_type') == 'raw' and req_data.get('body'):
                         current_editor.body_raw_radio.setChecked(True)
-                        current_editor.raw_text_edit.setPlainText(data)
-                
-                dialog.accept()
-                
-            except Exception as e:
-                QMessageBox.warning(dialog, 'Error', f'Failed to parse cURL command: {e}')
-        
+                        current_editor.raw_text_edit.setPlainText(req_data.get('body', ''))
+                        current_editor.raw_type_combo.setCurrentText(req_data.get('raw_type', 'JSON'))
+                    else:
+                        current_editor.body_none_radio.setChecked(True)
+            elif choice == QMessageBox.No:
+                # 新建Request导入
+                req_editor = RequestEditor(mainwin)
+                req_editor.method_combo.setCurrentText(req_data.get('method', 'GET'))
+                req_editor.url_edit.setText(req_data.get('url', ''))
+                # Headers
+                req_editor.headers_table.setRowCount(1)
+                for i, h in enumerate(req_data.get('headers', [])):
+                    if i >= req_editor.headers_table.rowCount()-1:
+                        req_editor.headers_table.insertRow(req_editor.headers_table.rowCount())
+                        req_editor.add_table_row(req_editor.headers_table, req_editor.headers_table.rowCount()-1)
+                    req_editor.headers_table.setItem(i, 1, QTableWidgetItem(h.get('key', '')))
+                    req_editor.headers_table.setItem(i, 2, QTableWidgetItem(h.get('value', '')))
+                req_editor.refresh_table_widgets(req_editor.headers_table)
+                # Body
+                if req_data.get('body_type') == 'raw' and req_data.get('body'):
+                    req_editor.body_raw_radio.setChecked(True)
+                    req_editor.raw_text_edit.setPlainText(req_data.get('body', ''))
+                    req_editor.raw_type_combo.setCurrentText(req_data.get('raw_type', 'JSON'))
+                else:
+                    req_editor.body_none_radio.setChecked(True)
+                mainwin.req_tabs.addTab(req_editor, 'Imported Request')
+                mainwin.req_tabs.setCurrentWidget(req_editor)
+            
+            dlg.accept()
+        curl_import_btn.clicked.connect(import_curl)
+        # File导入逻辑
         def import_file():
-            # 直接打开文件选择对话框
-            fname, _ = QFileDialog.getOpenFileName(
-                dialog, 
-                'Select File', 
-                '', 
-                'All Files (*);;JSON Files (*.json);;Text Files (*.txt)'
-            )
+            fname, _ = QFileDialog.getOpenFileName(self, '导入请求', '', 'JSON Files (*.json);;All Files (*)')
             if not fname:
                 return
-            
             try:
+                import json
                 with open(fname, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                
-                # 尝试解析为JSON
-                try:
-                    import json
-                    data = json.loads(content)
-                    
-                    # 创建新请求
-                    self.create_new_request()
+                    req_data = json.load(f)
+                # 检查headers/body等字段格式
+                if not isinstance(req_data.get('headers', []), list):
+                    raise ValueError('headers 字段格式错误，应为数组')
+                if not isinstance(req_data.get('params', []), list):
+                    raise ValueError('params 字段格式错误，应为数组')
+                from PyQt5.QtWidgets import QMessageBox
+                choice = QMessageBox.question(self, '导入方式', '导入到当前Request还是新建Request导入？\n选择"是"将覆盖当前，选择"否"将新建Request导入。', QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, QMessageBox.Cancel)
+                if choice == QMessageBox.Cancel:
+                    return
+                mainwin = self.window()
+                from ui.widgets.request_editor import RequestEditor
+                if choice == QMessageBox.Yes:
+                    # 覆盖当前Request
                     current_editor = self.req_tabs.currentWidget()
                     if current_editor:
-                        current_editor.method_combo.setCurrentText(data.get('method', 'GET'))
-                        current_editor.url_edit.setText(data.get('url', ''))
-                        
-                        # 设置headers
-                        headers = data.get('headers', {})
-                        if headers:
-                            current_editor.headers_table.setRowCount(len(headers) + 1)
-                            for i, (key, value) in enumerate(headers.items()):
-                                current_editor.headers_table.setItem(i, 1, QTableWidgetItem(key))
-                                current_editor.headers_table.setItem(i, 2, QTableWidgetItem(str(value)))
-                        
-                        # 设置body
-                        body = data.get('body', '')
-                        if body:
+                        current_editor.method_combo.setCurrentText(req_data.get('method', 'GET'))
+                        current_editor.url_edit.setText(req_data.get('url', ''))
+                        # Params
+                        current_editor.params_table.setRowCount(1)
+                        for i, param in enumerate(req_data.get('params', [])):
+                            if i >= current_editor.params_table.rowCount()-1:
+                                current_editor.params_table.insertRow(current_editor.params_table.rowCount())
+                                current_editor.add_table_row(current_editor.params_table, current_editor.params_table.rowCount()-1)
+                            current_editor.params_table.setItem(i, 1, QTableWidgetItem(param.get('key', '')))
+                            current_editor.params_table.setItem(i, 2, QTableWidgetItem(param.get('value', '')))
+                        # Headers
+                        current_editor.headers_table.setRowCount(1)
+                        for i, h in enumerate(req_data.get('headers', [])):
+                            if i >= current_editor.headers_table.rowCount()-1:
+                                current_editor.headers_table.insertRow(current_editor.headers_table.rowCount())
+                                current_editor.add_table_row(current_editor.headers_table, current_editor.headers_table.rowCount()-1)
+                            current_editor.headers_table.setItem(i, 1, QTableWidgetItem(h.get('key', '')))
+                            current_editor.headers_table.setItem(i, 2, QTableWidgetItem(h.get('value', '')))
+                        current_editor.refresh_table_widgets(current_editor.headers_table)
+                        # Body
+                        body_type = req_data.get('body_type', 'none')
+                        if body_type == 'form-data':
+                            current_editor.body_form_radio.setChecked(True)
+                            current_editor.form_table.setRowCount(1)
+                            for i, item in enumerate(req_data.get('body', [])):
+                                if i >= current_editor.form_table.rowCount()-1:
+                                    current_editor.form_table.insertRow(current_editor.form_table.rowCount())
+                                    current_editor.add_table_row(current_editor.form_table, current_editor.form_table.rowCount()-1)
+                                current_editor.form_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                                current_editor.form_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                        elif body_type == 'x-www-form-urlencoded':
+                            current_editor.body_url_radio.setChecked(True)
+                            current_editor.url_table.setRowCount(1)
+                            for i, item in enumerate(req_data.get('body', [])):
+                                if i >= current_editor.url_table.rowCount()-1:
+                                    current_editor.url_table.insertRow(current_editor.url_table.rowCount())
+                                    current_editor.add_table_row(current_editor.url_table, current_editor.url_table.rowCount()-1)
+                                current_editor.url_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                                current_editor.url_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                        elif body_type == 'raw':
                             current_editor.body_raw_radio.setChecked(True)
-                            current_editor.raw_text_edit.setPlainText(str(body))
-                    
-                    dialog.accept()
-                    
-                except json.JSONDecodeError:
-                    # 如果不是JSON，尝试作为cURL命令解析
-                    import shlex
-                    args = shlex.split(content)
-                    
-                    # 提取URL
-                    url = None
-                    method = 'GET'
-                    headers = {}
-                    data = None
-                    
-                    i = 0
-                    while i < len(args):
-                        arg = args[i]
-                        if arg.startswith('-X') or arg.startswith('--request'):
-                            if i + 1 < len(args):
-                                method = args[i + 1]
-                                i += 2
-                            else:
-                                i += 1
-                        elif arg.startswith('-H') or arg.startswith('--header'):
-                            if i + 1 < len(args):
-                                header = args[i + 1]
-                                if ':' in header:
-                                    key, value = header.split(':', 1)
-                                    headers[key.strip()] = value.strip()
-                                i += 2
-                            else:
-                                i += 1
-                        elif arg.startswith('-d') or arg.startswith('--data'):
-                            if i + 1 < len(args):
-                                data = args[i + 1]
-                                i += 2
-                            else:
-                                i += 1
-                        elif not arg.startswith('-'):
-                            url = arg
-                            i += 1
+                            current_editor.raw_text_edit.setPlainText(req_data.get('body', ''))
+                            current_editor.raw_type_combo.setCurrentText(req_data.get('raw_type', 'JSON'))
                         else:
-                            i += 1
-                    
-                    if not url:
-                        QMessageBox.warning(dialog, 'Error', 'No URL found in file content!')
-                        return
-                    
-                    # 创建新请求
-                    self.create_new_request()
-                    current_editor = self.req_tabs.currentWidget()
-                    if current_editor:
-                        current_editor.method_combo.setCurrentText(method)
-                        current_editor.url_edit.setText(url)
-                        
-                        # 设置headers
-                        if headers:
-                            current_editor.headers_table.setRowCount(len(headers) + 1)
-                            for i, (key, value) in enumerate(headers.items()):
-                                current_editor.headers_table.setItem(i, 1, QTableWidgetItem(key))
-                                current_editor.headers_table.setItem(i, 2, QTableWidgetItem(value))
-                        
-                        # 设置body
-                        if data:
-                            current_editor.body_raw_radio.setChecked(True)
-                            current_editor.raw_text_edit.setPlainText(data)
-                    
-                    dialog.accept()
-                    
+                            current_editor.body_none_radio.setChecked(True)
+                elif choice == QMessageBox.No:
+                    # 新建Request导入
+                    req_editor = RequestEditor(mainwin)
+                    req_editor.method_combo.setCurrentText(req_data.get('method', 'GET'))
+                    req_editor.url_edit.setText(req_data.get('url', ''))
+                    # Params
+                    req_editor.params_table.setRowCount(1)
+                    for i, param in enumerate(req_data.get('params', [])):
+                        if i >= req_editor.params_table.rowCount()-1:
+                            req_editor.params_table.insertRow(req_editor.params_table.rowCount())
+                        req_editor.params_table.setItem(i, 1, QTableWidgetItem(param.get('key', '')))
+                        req_editor.params_table.setItem(i, 2, QTableWidgetItem(param.get('value', '')))
+                    # Headers
+                    req_editor.headers_table.setRowCount(1)
+                    for i, h in enumerate(req_data.get('headers', [])):
+                        if i >= req_editor.headers_table.rowCount()-1:
+                            req_editor.headers_table.insertRow(req_editor.headers_table.rowCount())
+                            req_editor.add_table_row(req_editor.headers_table, req_editor.headers_table.rowCount()-1)
+                        req_editor.headers_table.setItem(i, 1, QTableWidgetItem(h.get('key', '')))
+                        req_editor.headers_table.setItem(i, 2, QTableWidgetItem(h.get('value', '')))
+                    req_editor.refresh_table_widgets(req_editor.headers_table)
+                    # Body
+                    body_type = req_data.get('body_type', 'none')
+                    if body_type == 'form-data':
+                        req_editor.body_form_radio.setChecked(True)
+                        req_editor.form_table.setRowCount(1)
+                        for i, item in enumerate(req_data.get('body', [])):
+                            if i >= req_editor.form_table.rowCount()-1:
+                                req_editor.form_table.insertRow(req_editor.form_table.rowCount())
+                            req_editor.form_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                            req_editor.form_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                    elif body_type == 'x-www-form-urlencoded':
+                        req_editor.body_url_radio.setChecked(True)
+                        req_editor.url_table.setRowCount(1)
+                        for i, item in enumerate(req_data.get('body', [])):
+                            if i >= req_editor.url_table.rowCount()-1:
+                                req_editor.url_table.insertRow(req_editor.url_table.rowCount())
+                            req_editor.url_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                            req_editor.url_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                    elif body_type == 'raw':
+                        req_editor.body_raw_radio.setChecked(True)
+                        req_editor.raw_text_edit.setPlainText(req_data.get('body', ''))
+                        req_editor.raw_type_combo.setCurrentText(req_data.get('raw_type', 'JSON'))
+                    else:
+                        req_editor.body_none_radio.setChecked(True)
+                    mainwin.req_tabs.addTab(req_editor, 'Imported Request')
+                    mainwin.req_tabs.setCurrentWidget(req_editor)
+                dlg.accept()
             except Exception as e:
-                QMessageBox.warning(dialog, 'Error', f'Failed to import file: {e}')
-        
-        def browse_file():
-            fname, _ = QFileDialog.getOpenFileName(
-                dialog, 
-                'Select File', 
-                '', 
-                'All Files (*);;JSON Files (*.json);;Text Files (*.txt)'
-            )
-            if fname:
-                file_select_btn.setText(fname)
-        
-        def on_import():
-            if curl_radio.isChecked():
-                import_curl()
-            else:
-                import_file()
-        
-        import_btn.clicked.connect(on_import)
-        cancel_btn.clicked.connect(dialog.reject)
-        file_select_btn.clicked.connect(browse_file)
-        
-        dialog.exec_()
+                from PyQt5.QtWidgets import QMessageBox
+                QMessageBox.warning(self, '导入失败', f'导入内容格式错误: {e}')
+        file_select_btn.clicked.connect(import_file)
+        dlg.exec_()
 
     def _cleanup_previous_request(self):
         """清理之前的请求 - 最简单版本"""
@@ -2424,72 +2591,135 @@ Thank you for using PostSuperman!'''
             self._current_editor = None 
 
     def show_curl_code(self):
-        """显示cURL代码对话框"""
-        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel, QApplication
+        from PyQt5.QtCore import QTimer
         from PyQt5.QtGui import QClipboard
+        import shlex
         
-        dialog = QDialog(self)
-        dialog.setWindowTitle('cURL')
-        dialog.setMinimumWidth(500)
-        layout = QVBoxLayout(dialog)
+        dlg = QDialog(self)
+        dlg.setWindowTitle('cURL')
+        layout = QVBoxLayout(dlg)
+        label = QLabel('cURL command:')
+        layout.addWidget(label)
         
-        # 获取当前请求编辑器
+        # 生成当前请求的curl命令
         current_editor = self.req_tabs.currentWidget()
         if not current_editor:
-            QMessageBox.warning(dialog, 'Error', 'No active request editor!')
             return
-        
-        # 生成cURL命令
+            
         method = current_editor.method_combo.currentText()
         url = current_editor.url_edit.text().strip()
         
         # 构建headers
         headers = []
-        for row in range(current_editor.headers_table.rowCount() - 1):
+        for row in range(current_editor.headers_table.rowCount()-1):
             key_item = current_editor.headers_table.item(row, 1)
             value_item = current_editor.headers_table.item(row, 2)
             if key_item and value_item and key_item.text().strip():
-                headers.append(f"-H '{key_item.text().strip()}: {value_item.text().strip()}'")
+                key = key_item.text().strip()
+                value = value_item.text().strip()
+                # 转义单引号
+                key = key.replace("'", "'\"'\"'")
+                value = value.replace("'", "'\"'\"'")
+                headers.append(f"-H '{key}: {value}'")
         
         # 构建cURL命令
-        curl_cmd = f"curl -X {method}"
-        if headers:
-            curl_cmd += f" {' '.join(headers)}"
-        curl_cmd += f" '{url}'"
+        curl_parts = ["curl"]
+        
+        # 添加方法
+        curl_parts.append(f"-X {method}")
+        
+        # 添加headers
+        curl_parts.extend(headers)
+        
+        # 添加URL参数
+        params = []
+        for row in range(current_editor.params_table.rowCount()-1):
+            key_item = current_editor.params_table.item(row, 1)
+            value_item = current_editor.params_table.item(row, 2)
+            if key_item and value_item and key_item.text().strip():
+                key = key_item.text().strip()
+                value = value_item.text().strip()
+                # URL编码参数
+                from urllib.parse import quote
+                key = quote(key, safe='')
+                value = quote(value, safe='')
+                params.append(f"{key}={value}")
+        
+        if params:
+            url += "?" + "&".join(params)
+        
+        # 转义URL中的单引号
+        url = url.replace("'", "'\"'\"'")
+        curl_parts.append(f"'{url}'")
         
         # 添加body数据
         if current_editor.body_raw_radio.isChecked():
             body_data = current_editor.raw_text_edit.toPlainText().strip()
             if body_data:
-                curl_cmd += f" -d '{body_data}'"
+                # 转义body数据中的单引号
+                body_data = body_data.replace("'", "'\"'\"'")
+                curl_parts.append(f"-d '{body_data}'")
+        elif current_editor.body_form_radio.isChecked():
+            form_data = []
+            for row in range(current_editor.form_table.rowCount()-1):
+                key_item = current_editor.form_table.item(row, 1)
+                value_item = current_editor.form_table.item(row, 2)
+                if key_item and value_item and key_item.text().strip():
+                    key = key_item.text().strip()
+                    value = value_item.text().strip()
+                    # 转义form数据中的单引号
+                    key = key.replace("'", "'\"'\"'")
+                    value = value.replace("'", "'\"'\"'")
+                    form_data.append(f"-F '{key}={value}'")
+            curl_parts.extend(form_data)
+        elif current_editor.body_url_radio.isChecked():
+            url_data = []
+            for row in range(current_editor.url_table.rowCount()-1):
+                key_item = current_editor.url_table.item(row, 1)
+                value_item = current_editor.url_table.item(row, 2)
+                if key_item and value_item and key_item.text().strip():
+                    key = key_item.text().strip()
+                    value = value_item.text().strip()
+                    # 转义urlencoded数据中的单引号
+                    key = key.replace("'", "'\"'\"'")
+                    value = value.replace("'", "'\"'\"'")
+                    url_data.append(f"-d '{key}={value}'")
+            curl_parts.extend(url_data)
         
-        # 创建UI
-        label = QLabel('cURL command:')
-        layout.addWidget(label)
+        curl = " ".join(curl_parts)
         
         curl_edit = QTextEdit()
         curl_edit.setReadOnly(True)
-        curl_edit.setPlainText(curl_cmd)
+        curl_edit.setPlainText(curl)
         layout.addWidget(curl_edit)
         
-        # 按钮行
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
-        
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
         copy_btn = QPushButton('Copy')
-        copy_btn.setFixedWidth(80)
-        btn_layout.addWidget(copy_btn)
+        btn_row.addWidget(copy_btn)
+        layout.addLayout(btn_row)
         
-        layout.addLayout(btn_layout)
-        
-        # 复制功能
         def do_copy():
             clipboard = QApplication.clipboard()
-            clipboard.setText(curl_cmd)
-            QMessageBox.information(dialog, 'Success', 'cURL command copied to clipboard!')
+            clipboard.setText(curl)
+            
+            # 改变按钮文本为"Copied"并置灰
+            copy_btn.setText('Copied')
+            copy_btn.setEnabled(False)
+            
+            # 2秒后恢复按钮状态
+            timer = QTimer(dlg)
+            timer.setSingleShot(True)
+            def restore_button():
+                copy_btn.setText('Copy')
+                copy_btn.setEnabled(True)
+                timer.deleteLater()
+            timer.timeout.connect(restore_button)
+            timer.start(2000)  # 2000毫秒 = 2秒
         
         copy_btn.clicked.connect(do_copy)
-        dialog.exec_()
+        dlg.exec_()
 
     def export_request(self):
         """导出当前请求"""
@@ -2581,14 +2811,63 @@ Thank you for using PostSuperman!'''
                 self.log_info(f'Updated tab title: "{tab_text}" -> "{new_tab_text}"')
 
     def _get_parent_map(self):
+        """获取父子关系映射，使用项的文本作为键"""
         parent_map = {}
         def recurse(item):
             for i in range(item.childCount()):
                 child = item.child(i)
-                parent_map[child] = item
+                # 使用项的文本作为键，因为QTreeWidgetItem不可哈希
+                child_key = self._get_item_key(child)
+                parent_key = self._get_item_key(item) if item else None
+                parent_map[child_key] = parent_key
                 recurse(child)
         for i in range(self.collection_tree.topLevelItemCount()):
             top = self.collection_tree.topLevelItem(i)
-            parent_map[top] = None
+            top_key = self._get_item_key(top)
+            parent_map[top_key] = None
             recurse(top)
         return parent_map
+    
+    def _get_item_key(self, item):
+        """为QTreeWidgetItem生成唯一键"""
+        if item is None:
+            return None
+        
+        # 生成唯一标识符：路径 + 类型
+        path_parts = []
+        current = item
+        while current is not None:
+            path_parts.insert(0, current.text(0))
+            current = current.parent()
+        
+        # 添加类型标识
+        item_type = "collection" if item.childCount() > 0 else "request"
+        return f"{'/'.join(path_parts)}:{item_type}"
+
+    def is_request_node(self, item):
+        return item.icon(0) is not None and item.icon(0).pixmap(16, 16).toImage() == self.file_icon.pixmap(16, 16).toImage()
+
+    def is_collection_node(self, item):
+        return item.icon(0) is not None and item.icon(0).pixmap(16, 16).toImage() == self.folder_icon.pixmap(16, 16).toImage()
+
+    def fix_all_collection_icons(self):
+        """全局修正所有Collection节点icon为folder_icon"""
+        def fix_icon(item):
+            if (item.childCount() > 0 or item.parent() is None) and (item.icon(0) is None or item.icon(0).cacheKey() != self.folder_icon.cacheKey()):
+                item.setIcon(0, self.folder_icon)
+            for i in range(item.childCount()):
+                fix_icon(item.child(i))
+        for i in range(self.collection_tree.topLevelItemCount()):
+            fix_icon(self.collection_tree.topLevelItem(i))
+
+    def fix_all_node_types(self):
+        """递归修正所有节点类型标记"""
+        def fix_type(item):
+            if item.childCount() > 0 or item.parent() is None:
+                item.setData(0, Qt.UserRole+1, 'collection')
+            else:
+                item.setData(0, Qt.UserRole+1, 'request')
+            for i in range(item.childCount()):
+                fix_type(item.child(i))
+        for i in range(self.collection_tree.topLevelItemCount()):
+            fix_type(self.collection_tree.topLevelItem(i))
