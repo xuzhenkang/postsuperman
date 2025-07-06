@@ -224,6 +224,9 @@ class RequestEditor(QWidget):
         from PyQt5.QtGui import QKeySequence
         QShortcut(QKeySequence('Ctrl+S'), self, self.save_to_tree)
         
+        # 设置Beautify按钮的初始可见性
+        self.beautify_btn.setVisible(True)  # 默认JSON类型显示
+        
         self.setLayout(layout)
         
     def init_table(self, table):
@@ -341,12 +344,15 @@ class RequestEditor(QWidget):
     def on_raw_type_changed(self, text):
         """原始类型改变"""
         if text == 'JSON':
+            self.beautify_btn.setVisible(True)
             # 自动美化
             try:
                 obj = json.loads(self.raw_text_edit.toPlainText())
                 self.raw_text_edit.setPlainText(json.dumps(obj, ensure_ascii=False, indent=2))
             except Exception:
                 pass
+        else:
+            self.beautify_btn.setVisible(False)
                 
     def on_send_clicked(self):
         """发送按钮点击"""
@@ -355,8 +361,10 @@ class RequestEditor(QWidget):
             mainwin.send_request(self)
             
     def on_save_clicked(self):
-        """保存按钮点击"""
-        self.save_to_tree()
+        """导出按钮点击"""
+        mainwin = self.window()
+        if hasattr(mainwin, 'export_request'):
+            mainwin.export_request()
         
     def on_import_clicked(self):
         """导入按钮点击"""

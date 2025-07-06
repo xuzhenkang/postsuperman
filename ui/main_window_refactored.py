@@ -23,10 +23,10 @@ from PyQt5.QtWidgets import (
     QCheckBox, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox,
     QSpinBox, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QDialogButtonBox, QProgressBar, QSlider, QGroupBox, QScrollArea,
-    QGridLayout, QSpacerItem, QSizePolicy
+    QGridLayout, QSpacerItem, QSizePolicy, QInputDialog
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QEventLoop
-from PyQt5.QtGui import QIcon, QFont, QKeySequence
+from PyQt5.QtGui import QIcon, QFont, QKeySequence, QClipboard, QPixmap
 # from PyQt5.QtWebEngineWidgets import QWebEngineView  # 暂时注释掉，避免导入错误
 
 # 导入自定义模块
@@ -40,6 +40,7 @@ from .utils.markdown_converter import MarkdownConverter
 from .dialogs.about_dialog import AboutDialog
 from .models.collection_manager import CollectionManager
 from PyQt5.QtWidgets import QTabWidget
+from ui.collection_tree_widget import CollectionTreeWidget
 
 
 class MainWindow(QWidget):
@@ -224,13 +225,15 @@ class MainWindow(QWidget):
         collections_layout.setContentsMargins(0, 0, 0, 0)
         collections_layout.setSpacing(4)
         
-        self.collection_tree = QTreeWidget()
+        self.collection_tree = CollectionTreeWidget()
+        self.collection_tree._main_window = self  # 注入主窗口引用
         self.collection_tree.setHeaderHidden(True)
-        self.collection_tree.setDragDropMode(self.collection_tree.InternalMove)
+        self.collection_tree.setDragDropMode(self.collection_tree.DragDrop)
         self.collection_tree.setDefaultDropAction(Qt.MoveAction)
         self.collection_tree.setSelectionMode(self.collection_tree.SingleSelection)
         self.collection_tree.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.collection_tree.dropEvent = self.collection_drop_event_only_top_level
+        self.collection_tree.setDragEnabled(True)
+        self.collection_tree.setAcceptDrops(True)
         
         # 默认集合
         root = QTreeWidgetItem(self.collection_tree, ['Default Collection'])
@@ -375,25 +378,24 @@ class MainWindow(QWidget):
             return 0
             
     def ensure_req_tabs(self):
-        if not isinstance(self.req_tabs, (QTabWidget, type(None))):
-            print(f"[警告] self.req_tabs 被污染为 {type(self.req_tabs)}，自动重建 QTabWidget！")
-            print(f"[调试] self.req_tabs 值: {self.req_tabs}")
-            import traceback
-            print(f"[调试] 调用栈:")
-            traceback.print_stack()
-            self.req_tabs = None  # 先置空，后续逻辑会自动重建
-
-    # 核心功能实现
-    def create_new_request(self):
-        self.ensure_req_tabs()
-        """从File菜单创建新请求"""
-        # 确保请求区域已创建
+        """确保请求Tab区域已创建"""
+        # 检查是否需要创建UI
+        need_create = False
         if not hasattr(self, 'req_tabs') or self.req_tabs is None:
+            need_create = True
+        else:
+            try:
+                _ = self.req_tabs.count()
+            except Exception:
+                need_create = True
+        
+        if need_create:
             # 彻底移除并销毁欢迎页，防止QBasicTimer警告
             if hasattr(self, 'welcome_page') and self.welcome_page is not None:
                 self.right_widget.layout().removeWidget(self.welcome_page)
                 self.welcome_page.deleteLater()
                 self.welcome_page = None
+            
             # 创建请求Tab和响应区
             vertical_splitter = QSplitter(Qt.Vertical)
             self.req_tabs = QTabWidget()
@@ -404,65 +406,248 @@ class MainWindow(QWidget):
             # 添加右键菜单支持
             self.req_tabs.setContextMenuPolicy(Qt.CustomContextMenu)
             self.req_tabs.customContextMenuRequested.connect(self.show_tab_context_menu)
-            # 响应区
-            resp_card = QFrame()
-            resp_card.setObjectName('ResponseCard')
-            resp_card_layout = QVBoxLayout(resp_card)
-            resp_card_layout.setContentsMargins(16, 8, 16, 8)
-            resp_card_layout.setSpacing(8)
-            self.resp_tabs = QTabWidget()
-            self.resp_tabs.setObjectName('RespTabs')
-            # Body Tab
-            resp_body_widget = QWidget()
-            resp_body_layout = QVBoxLayout(resp_body_widget)
-            resp_body_layout.setContentsMargins(0, 0, 0, 0)
-            resp_body_layout.setSpacing(4)
-            self.resp_status_label = QLineEdit('Click Send to get a response')
-            self.resp_status_label.setReadOnly(True)
-            self.resp_status_label.setFrame(False)
-            self.resp_status_label.setStyleSheet('background: transparent; border: none; font-weight: bold; color: #333;')
-            status_row = QHBoxLayout()
-            status_row.addWidget(self.resp_status_label)
-            status_row.addStretch()
-            self.save_resp_btn = QPushButton('Save Response to File')
-            self.clear_resp_btn = QPushButton('Clear Response')
-            status_row.addWidget(self.save_resp_btn)
-            status_row.addWidget(self.clear_resp_btn)
-            resp_body_layout.addLayout(status_row)
-            self.resp_body_edit = CodeEditor()
-            self.resp_body_edit.setReadOnly(True)
-            self.resp_json_highlighter = JsonHighlighter(self.resp_body_edit.document())
-            resp_body_layout.addWidget(self.resp_body_edit)
-            resp_body_widget.setLayout(resp_body_layout)
-            self.resp_tabs.addTab(resp_body_widget, 'Body')
-            # Headers Tab
-            resp_headers_widget = QTextEdit()
-            resp_headers_widget.setReadOnly(True)
-            self.resp_tabs.addTab(resp_headers_widget, 'Headers')
-            resp_card_layout.addWidget(self.resp_tabs)
-            resp_card.setLayout(resp_card_layout)
-            self.resp_loading_overlay = RespLoadingOverlay(resp_card, mainwin=self)
+            
+            # 响应区容器
+            self.resp_container = QWidget()
+            self.resp_container_layout = QVBoxLayout(self.resp_container)
+            self.resp_container_layout.setContentsMargins(0, 0, 0, 0)
+            self.resp_container_layout.setSpacing(0)
+            
+            # 响应区映射表
+            self.response_widgets = {}  # tab_index -> response_widget
+            
             vertical_splitter.addWidget(self.req_tabs)
-            vertical_splitter.addWidget(resp_card)
+            vertical_splitter.addWidget(self.resp_container)
             vertical_splitter.setSizes([500, 300])
+            
             # 添加到右侧主区
             layout = self.right_widget.layout()
             layout.addWidget(vertical_splitter)
             self.vertical_splitter = vertical_splitter
-            self.save_resp_btn.clicked.connect(self.save_response_to_file)
-            self.clear_resp_btn.clicked.connect(self.clear_response)
+
+    def create_response_widget(self, tab_index):
+        """为指定的Tab创建Response区域"""
+        # 响应区卡片
+        resp_card = QFrame()
+        resp_card.setObjectName('ResponseCard')
+        resp_card_layout = QVBoxLayout(resp_card)
+        resp_card_layout.setContentsMargins(16, 8, 16, 8)
+        resp_card_layout.setSpacing(8)
+        
+        # Response Tabs
+        resp_tabs = QTabWidget()
+        resp_tabs.setObjectName('RespTabs')
+        
+        # Body Tab
+        resp_body_widget = QWidget()
+        resp_body_layout = QVBoxLayout(resp_body_widget)
+        resp_body_layout.setContentsMargins(0, 0, 0, 0)
+        resp_body_layout.setSpacing(4)
+        
+        # 状态栏
+        resp_status_label = QLineEdit('Click Send to get a response')
+        resp_status_label.setReadOnly(True)
+        resp_status_label.setFrame(False)
+        resp_status_label.setStyleSheet('background: transparent; border: none; font-weight: bold; color: #333;')
+        
+        status_row = QHBoxLayout()
+        status_row.addWidget(resp_status_label)
+        status_row.addStretch()
+        
+        save_resp_btn = QPushButton('Save Response to File')
+        clear_resp_btn = QPushButton('Clear Response')
+        status_row.addWidget(save_resp_btn)
+        status_row.addWidget(clear_resp_btn)
+        resp_body_layout.addLayout(status_row)
+        
+        # Response Body编辑器
+        resp_body_edit = CodeEditor()
+        resp_body_edit.setReadOnly(True)
+        resp_json_highlighter = JsonHighlighter(resp_body_edit.document())
+        resp_body_layout.addWidget(resp_body_edit)
+        resp_body_widget.setLayout(resp_body_layout)
+        resp_tabs.addTab(resp_body_widget, 'Body')
+        
+        # Headers Tab
+        resp_headers_widget = QTextEdit()
+        resp_headers_widget.setReadOnly(True)
+        resp_tabs.addTab(resp_headers_widget, 'Headers')
+        resp_card_layout.addWidget(resp_tabs)
+        resp_card.setLayout(resp_card_layout)
+        
+        # Loading Overlay
+        resp_loading_overlay = RespLoadingOverlay(resp_card, mainwin=self)
+        
+        # 连接按钮事件
+        save_resp_btn.clicked.connect(lambda: self.save_response_to_file(tab_index))
+        clear_resp_btn.clicked.connect(lambda: self.clear_response(tab_index))
+        
+        # 返回Response组件字典
+        return {
+            'card': resp_card,
+            'tabs': resp_tabs,
+            'status_label': resp_status_label,
+            'body_edit': resp_body_edit,
+            'headers_widget': resp_headers_widget,
+            'loading_overlay': resp_loading_overlay,
+            'save_btn': save_resp_btn,
+            'clear_btn': clear_resp_btn
+        }
+
+    def show_response_for_tab(self, tab_index):
+        """显示指定Tab对应的Response区域"""
+        if not hasattr(self, 'response_widgets'):
+            return
+            
+        # 清除当前显示的所有Response区域
+        for i in range(self.resp_container_layout.count()):
+            widget = self.resp_container_layout.itemAt(i).widget()
+            if widget:
+                self.resp_container_layout.removeWidget(widget)
+                widget.hide()
+        
+        # 显示对应Tab的Response
+        if tab_index in self.response_widgets:
+            response_widget = self.response_widgets[tab_index]
+            self.resp_container_layout.addWidget(response_widget['card'])
+            response_widget['card'].show()
+        else:
+            # 如果该Tab还没有Response，创建一个
+            response_widget = self.create_response_widget(tab_index)
+            self.response_widgets[tab_index] = response_widget
+            self.resp_container_layout.addWidget(response_widget['card'])
+            response_widget['card'].show()
+
+    def remove_response_for_tab(self, tab_index):
+        """移除指定Tab对应的Response区域"""
+        if hasattr(self, 'response_widgets') and tab_index in self.response_widgets:
+            response_widget = self.response_widgets[tab_index]
+            # 从容器中移除
+            self.resp_container_layout.removeWidget(response_widget['card'])
+            response_widget['card'].deleteLater()
+            # 从映射表中移除
+            del self.response_widgets[tab_index]
+            
+            # 如果还有其他Tab，显示第一个Tab的Response
+            if self.req_tabs.count() > 0:
+                current_index = self.req_tabs.currentIndex()
+                if current_index >= 0:
+                    self.show_response_for_tab(current_index)
+            else:
+                # 没有Tab了，显示欢迎页
+                self.check_and_show_welcome_page()
+
+    # 核心功能实现
+    def create_new_request(self):
+        """从File菜单创建新请求"""
+        # 弹出对话框让用户输入Request名称
+        from PyQt5.QtWidgets import QInputDialog, QMessageBox
+        
+        # 获取当前选中的项
+        selected_item = self.collection_tree.currentItem()
+        
+        # 如果选中的是Request节点，弹出提示
+        if selected_item and selected_item.childCount() == 0 and selected_item.parent() is not None:
+            QMessageBox.information(
+                self,
+                'Cannot Create Request',
+                'Cannot create a request under another request.\n\nPlease select a collection or no item to create a new request.'
+            )
+            return
+        
+        request_name, ok = QInputDialog.getText(
+            self, 
+            'New Request', 
+            'Enter request name:',
+            text='New Request'
+        )
+        
+        if not ok or not request_name.strip():
+            return  # 用户取消或输入为空
+        
+        # 检查名称是否重复
+        def check_name_exists(parent_item, name):
+            for i in range(parent_item.childCount()):
+                if parent_item.child(i).text(0) == name:
+                    return True
+            return False
+        
+        # 获取父Collection
+        parent_collection = None
+        
+        if selected_item:
+            # 如果选中的是Collection，直接使用
+            if selected_item.childCount() > 0:
+                parent_collection = selected_item
+            # 如果选中的是Request，使用其父Collection（这种情况不应该发生，因为前面已经检查过了）
+            elif selected_item.parent() is not None:
+                parent_collection = selected_item.parent()
+        
+        # 如果没有选中任何Collection，查找或创建默认Collection
+        if parent_collection is None:
+            for i in range(self.collection_tree.topLevelItemCount()):
+                item = self.collection_tree.topLevelItem(i)
+                if item.text(0) == 'Default Collection':
+                    parent_collection = item
+                    break
+            
+            # 如果没有默认Collection，创建一个
+            if parent_collection is None:
+                parent_collection = QTreeWidgetItem(['Default Collection'])
+                parent_collection.setIcon(0, self.folder_icon)
+                self.collection_tree.addTopLevelItem(parent_collection)
+        
+        # 检查名称是否在父Collection中重复
+        if check_name_exists(parent_collection, request_name):
+            QMessageBox.warning(
+                self, 
+                'Duplicate Name', 
+                f'A request named "{request_name}" already exists in this collection!'
+            )
+            return
+        
+        # 确保请求区域已创建
+        self.ensure_req_tabs()
+        
+        # 生成包含Collection路径的Tab标签
+        def get_collection_path(parent_collection):
+            path_parts = []
+            current = parent_collection
+            while current is not None:
+                path_parts.insert(0, current.text(0))
+                current = current.parent()
+            return '/'.join(path_parts)
+        
+        collection_path = get_collection_path(parent_collection)
+        full_request_path = f"{collection_path}/{request_name}"
         
         # 创建新的请求编辑器
-        req_editor = RequestEditor(self)
-        self.req_tabs.addTab(req_editor, 'New Request')
+        from ui.widgets.request_editor import RequestEditor
+        req_editor = RequestEditor(self, req_name=request_name)
+        tab_index = self.req_tabs.addTab(req_editor, full_request_path)
         self.req_tabs.setCurrentWidget(req_editor)
         
-        # 自动保存新请求到collections.json
-        self.save_new_request_to_collections(req_editor, 'New Request')
+        # 为新Tab创建Response区域
+        self.show_response_for_tab(tab_index)
         
-        self.log_info('Create new request from File menu')
+        # 自动保存新请求到collections.json
+        self.save_new_request_to_collections(req_editor, request_name, parent_collection)
+        
+        # 在树中选中新创建的Request
+        new_request_item = None
+        for i in range(parent_collection.childCount()):
+            child = parent_collection.child(i)
+            if child.text(0) == request_name:
+                new_request_item = child
+                break
+        
+        if new_request_item:
+            self.collection_tree.setCurrentItem(new_request_item)
+            self.collection_tree.scrollToItem(new_request_item)
+        
+        self.log_info(f'Create new request "{request_name}" in collection: {parent_collection.text(0)}')
 
-    def save_new_request_to_collections(self, req_editor, request_name):
+    def save_new_request_to_collections(self, req_editor, request_name, parent_collection):
         self.ensure_req_tabs()
         """将新创建的请求保存到collections.json"""
         # 获取请求数据
@@ -473,107 +658,26 @@ class MainWindow(QWidget):
         new_item.setIcon(0, self.file_icon)
         new_item.setData(0, Qt.UserRole, req_data)
         
-        # 查找默认集合，如果没有则创建
-        default_collection = None
-        for i in range(self.collection_tree.topLevelItemCount()):
-            item = self.collection_tree.topLevelItem(i)
-            if item.text(0) == 'Default Collection':
-                default_collection = item
-                break
-        
-        if default_collection:
-            # 添加到默认集合
-            default_collection.addChild(new_item)
-            default_collection.setExpanded(True)
+        if parent_collection:
+            # 添加到父集合
+            parent_collection.addChild(new_item)
+            parent_collection.setExpanded(True)
         else:
-            # 创建默认集合并添加请求
-            collection_item = QTreeWidgetItem(['Default Collection'])
-            collection_item.setIcon(0, self.folder_icon)
-            self.collection_tree.addTopLevelItem(collection_item)
-            collection_item.addChild(new_item)
-            collection_item.setExpanded(True)
+            # 这种情况不应该发生，因为前面已经确保了parent_collection存在
+            self.log_error('No parent collection found for new request')
+            return
         
         # 保存到collections.json
         self.save_all()
-        self.log_info(f'Save new request "{request_name}" to collections.json')
+        self.log_info(f'Save new request "{request_name}" to collection: {parent_collection.text(0)}')
 
     def on_collection_item_clicked(self, item, column):
-        self.ensure_req_tabs()
         """集合项单击事件"""
         # 判断是否为Request节点
         if item.childCount() == 0 and item.parent() is not None and item.icon(0).cacheKey() == self.file_icon.cacheKey():
-            # 若无self.req_tabs或已被销毁，先创建请求Tab和响应区
-            need_create = False
-            if not hasattr(self, 'req_tabs') or self.req_tabs is None:
-                need_create = True
-            else:
-                try:
-                    _ = self.req_tabs.count()
-                except Exception:
-                    need_create = True
-            if need_create:
-                # 彻底移除并销毁欢迎页，防止QBasicTimer警告
-                if hasattr(self, 'welcome_page') and self.welcome_page is not None:
-                    self.right_widget.layout().removeWidget(self.welcome_page)
-                    self.welcome_page.deleteLater()
-                    self.welcome_page = None
-                # 创建请求Tab和响应区
-                vertical_splitter = QSplitter(Qt.Vertical)
-                self.req_tabs = QTabWidget()
-                self.req_tabs.setObjectName('RequestTabs')
-                self.req_tabs.setTabsClosable(True)
-                self.req_tabs.currentChanged.connect(self.on_req_tab_changed)
-                self.req_tabs.tabCloseRequested.connect(self.on_req_tab_closed)
-                # 添加右键菜单支持
-                self.req_tabs.setContextMenuPolicy(Qt.CustomContextMenu)
-                self.req_tabs.customContextMenuRequested.connect(self.show_tab_context_menu)
-                # 响应区
-                resp_card = QFrame()
-                resp_card.setObjectName('ResponseCard')
-                resp_card_layout = QVBoxLayout(resp_card)
-                resp_card_layout.setContentsMargins(16, 8, 16, 8)
-                resp_card_layout.setSpacing(8)
-                self.resp_tabs = QTabWidget()
-                self.resp_tabs.setObjectName('RespTabs')
-                # Body Tab
-                resp_body_widget = QWidget()
-                resp_body_layout = QVBoxLayout(resp_body_widget)
-                resp_body_layout.setContentsMargins(0, 0, 0, 0)
-                resp_body_layout.setSpacing(4)
-                self.resp_status_label = QLineEdit('Click Send to get a response')
-                self.resp_status_label.setReadOnly(True)
-                self.resp_status_label.setFrame(False)
-                self.resp_status_label.setStyleSheet('background: transparent; border: none; font-weight: bold; color: #333;')
-                status_row = QHBoxLayout()
-                status_row.addWidget(self.resp_status_label)
-                status_row.addStretch()
-                self.save_resp_btn = QPushButton('Save Response to File')
-                self.clear_resp_btn = QPushButton('Clear Response')
-                status_row.addWidget(self.save_resp_btn)
-                status_row.addWidget(self.clear_resp_btn)
-                resp_body_layout.addLayout(status_row)
-                self.resp_body_edit = CodeEditor()
-                self.resp_body_edit.setReadOnly(True)
-                self.resp_json_highlighter = JsonHighlighter(self.resp_body_edit.document())
-                resp_body_layout.addWidget(self.resp_body_edit)
-                resp_body_widget.setLayout(resp_body_layout)
-                self.resp_tabs.addTab(resp_body_widget, 'Body')
-                # Headers Tab
-                resp_headers_widget = QTextEdit()
-                resp_headers_widget.setReadOnly(True)
-                self.resp_tabs.addTab(resp_headers_widget, 'Headers')
-                resp_card_layout.addWidget(self.resp_tabs)
-                resp_card.setLayout(resp_card_layout)
-                self.resp_loading_overlay = RespLoadingOverlay(resp_card, mainwin=self)
-                vertical_splitter.addWidget(self.req_tabs)
-                vertical_splitter.addWidget(resp_card)
-                vertical_splitter.setSizes([500, 300])
-                # 添加到右侧主区
-                layout = self.right_widget.layout()
-                layout.addWidget(vertical_splitter)
-                self.vertical_splitter = vertical_splitter
-                self.save_resp_btn.clicked.connect(self.save_response_to_file)
-                self.clear_resp_btn.clicked.connect(self.clear_response)
+            # 这是Request节点，需要创建Tab
+            self.ensure_req_tabs()
+            
             # 生成包含Collection路径的唯一标识
             def get_request_path(item):
                 path_parts = []
@@ -640,7 +744,14 @@ class MainWindow(QWidget):
                 else:
                     req_editor.body_none_radio.setChecked(True)
             self.req_tabs.addTab(req_editor, request_path)
+            tab_index = self.req_tabs.count() - 1  # 获取新添加的Tab索引
             self.req_tabs.setCurrentWidget(req_editor)
+            
+            # 为新Tab创建Response区域
+            self.show_response_for_tab(tab_index)
+        else:
+            # 这是Collection节点，不创建Tab，只展开/折叠
+            pass
 
     def get_request_data_from_tree(self, item):
         """从collections.json结构递归查找对应request数据"""
@@ -759,11 +870,13 @@ class MainWindow(QWidget):
                     else:
                         data = raw_text
             # 显示加载动画
-            overlay = self.resp_loading_overlay
-            overlay.setGeometry(0, 0, overlay.parent().width(), overlay.parent().height())
-            overlay.raise_()
-            overlay.setVisible(True)
-            QApplication.processEvents()
+            current_tab_index = self.req_tabs.currentIndex()
+            if current_tab_index >= 0 and current_tab_index in self.response_widgets:
+                overlay = self.response_widgets[current_tab_index]['loading_overlay']
+                overlay.setGeometry(0, 0, overlay.parent().width(), overlay.parent().height())
+                overlay.raise_()
+                overlay.setVisible(True)
+                QApplication.processEvents()
             
             # 创建新的请求工作器
             self._req_worker = RequestWorker(editor.method_combo.currentText(), editor.url_edit.text().strip(), params, headers, data, json_data, files)
@@ -799,10 +912,14 @@ class MainWindow(QWidget):
             # 检查内存使用
             self.check_memory_usage()
             
+            # 获取当前Tab索引
+            current_tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
+            
             # 确保遮罩层被隐藏
             try:
-                overlay = self.resp_loading_overlay
-                overlay.setVisible(False)
+                if current_tab_index >= 0 and current_tab_index in self.response_widgets:
+                    overlay = self.response_widgets[current_tab_index]['loading_overlay']
+                    overlay.setVisible(False)
             except Exception as e:
                 print(f"隐藏遮罩层时出错: {e}")
             
@@ -832,37 +949,45 @@ class MainWindow(QWidget):
             
             # 处理 RequestWorker 返回的结果格式
             try:
-                status_code = result.get('status_code', 0)
-                status_text = result.get('status_text', 'Unknown')
-                elapsed = result.get('elapsed', 0) * 1000
-                body = result.get('body', '')
-                headers = result.get('headers', {})
-                self._last_response_bytes = body.encode('utf-8') if body else b''
-                status = f'{status_text}   {elapsed:.0f}ms   {len(self._last_response_bytes)/1024:.2f}KB'
-                self.log_info(f'HTTP请求完成: {status_text} - 耗时: {elapsed:.0f}ms - 大小: {len(self._last_response_bytes)/1024:.2f}KB')
-                try:
-                    content_type = headers.get('Content-Type', '')
-                    if 'application/json' in content_type:
-                        obj = json.loads(body)
-                        body = json.dumps(obj, ensure_ascii=False, indent=2)
-                        self.resp_json_highlighter.setDocument(self.resp_body_edit.document())
-                    else:
-                        self.resp_json_highlighter.setDocument(None)
-                except Exception:
-                    self.resp_json_highlighter.setDocument(None)
-                headers_str = '\n'.join(f'{k}: {v}' for k, v in headers.items())
-                self.resp_status_label.setText(status)
-                self.resp_body_edit.setPlainText(body)
-                self.resp_tabs.widget(1).setPlainText(headers_str)
-                self.resp_tabs.setCurrentIndex(0)
+                if current_tab_index >= 0 and current_tab_index in self.response_widgets:
+                    response_widget = self.response_widgets[current_tab_index]
+                    status_code = result.get('status_code', 0)
+                    status_text = result.get('status_text', 'Unknown')
+                    elapsed = result.get('elapsed', 0) * 1000
+                    body = result.get('body', '')
+                    headers = result.get('headers', {})
+                    self._last_response_bytes = body.encode('utf-8') if body else b''
+                    status = f'{status_text}   {elapsed:.0f}ms   {len(self._last_response_bytes)/1024:.2f}KB'
+                    self.log_info(f'HTTP请求完成: {status_text} - 耗时: {elapsed:.0f}ms - 大小: {len(self._last_response_bytes)/1024:.2f}KB')
+                    
+                    try:
+                        content_type = headers.get('Content-Type', '')
+                        if 'application/json' in content_type:
+                            obj = json.loads(body)
+                            body = json.dumps(obj, ensure_ascii=False, indent=2)
+                            # 重新设置JSON高亮
+                            from ui.widgets.json_highlighter import JsonHighlighter
+                            response_widget['body_edit'].document().setPlainText(body)
+                            highlighter = JsonHighlighter(response_widget['body_edit'].document())
+                        else:
+                            response_widget['body_edit'].setPlainText(body)
+                    except Exception:
+                        response_widget['body_edit'].setPlainText(body)
+                    
+                    headers_str = '\n'.join(f'{k}: {v}' for k, v in headers.items())
+                    response_widget['status_label'].setText(status)
+                    response_widget['headers_widget'].setPlainText(headers_str)
+                    response_widget['tabs'].setCurrentIndex(0)
             except Exception as e:
                 print(f"处理响应结果时出错: {e}")
         except Exception as e:
             print(f"on_request_finished 出现异常: {e}")
             try:
                 self._sending_request = False
-                if hasattr(self, 'resp_loading_overlay'):
-                    self.resp_loading_overlay.setVisible(False)
+                current_tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
+                if current_tab_index >= 0 and current_tab_index in self.response_widgets:
+                    overlay = self.response_widgets[current_tab_index]['loading_overlay']
+                    overlay.setVisible(False)
                 current_editor = self.req_tabs.currentWidget() if hasattr(self, 'req_tabs') and self.req_tabs else None
                 if current_editor and hasattr(current_editor, 'send_btn'):
                     current_editor.send_btn.setEnabled(True)
@@ -876,11 +1001,17 @@ class MainWindow(QWidget):
         try:
             print(f"处理请求错误: {msg}")
             self._sending_request = False
+            
+            # 获取当前Tab索引
+            current_tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
+            
             try:
-                overlay = self.resp_loading_overlay
-                overlay.setVisible(False)
+                if current_tab_index >= 0 and current_tab_index in self.response_widgets:
+                    overlay = self.response_widgets[current_tab_index]['loading_overlay']
+                    overlay.setVisible(False)
             except Exception as e:
                 print(f"隐藏遮罩层时出错: {e}")
+                
             try:
                 current_editor = self.req_tabs.currentWidget() if hasattr(self, 'req_tabs') and self.req_tabs else None
                 if current_editor and hasattr(current_editor, 'send_btn'):
@@ -899,21 +1030,27 @@ class MainWindow(QWidget):
                             widget.send_btn.setEnabled(True)
             except Exception as e:
                 print(f"恢复按钮状态时出错: {e}")
+                
             # 不清理线程，让它自然结束
             self._req_worker = None
             self._current_editor = None
+            
             try:
-                self.resp_status_label.setText(f'Error: {msg}')
-                self.resp_body_edit.setPlainText(f'Request failed: {msg}')
-                self.resp_tabs.setCurrentIndex(0)
+                if current_tab_index >= 0 and current_tab_index in self.response_widgets:
+                    response_widget = self.response_widgets[current_tab_index]
+                    response_widget['status_label'].setText(f'Error: {msg}')
+                    response_widget['body_edit'].setPlainText(f'Request failed: {msg}')
+                    response_widget['tabs'].setCurrentIndex(0)
             except Exception as e:
                 print(f"显示错误信息时出错: {e}")
         except Exception as e:
             print(f"on_request_error 出现异常: {e}")
             try:
                 self._sending_request = False
-                if hasattr(self, 'resp_loading_overlay'):
-                    self.resp_loading_overlay.setVisible(False)
+                current_tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
+                if current_tab_index >= 0 and current_tab_index in self.response_widgets:
+                    overlay = self.response_widgets[current_tab_index]['loading_overlay']
+                    overlay.setVisible(False)
                 current_editor = self.req_tabs.currentWidget() if hasattr(self, 'req_tabs') and self.req_tabs else None
                 if current_editor and hasattr(current_editor, 'send_btn'):
                     current_editor.send_btn.setEnabled(True)
@@ -927,6 +1064,9 @@ class MainWindow(QWidget):
         try:
             print("处理请求停止")
             self._sending_request = False
+            
+            # 获取当前Tab索引
+            current_tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
             
             # 立即恢复Send按钮状态
             try:
@@ -949,8 +1089,9 @@ class MainWindow(QWidget):
             
             # 确保遮罩层被隐藏
             try:
-                overlay = self.resp_loading_overlay
-                overlay.setVisible(False)
+                if current_tab_index >= 0 and current_tab_index in self.response_widgets:
+                    overlay = self.response_widgets[current_tab_index]['loading_overlay']
+                    overlay.setVisible(False)
             except Exception as e:
                 print(f"隐藏遮罩层时出错: {e}")
                 
@@ -964,40 +1105,66 @@ class MainWindow(QWidget):
         except Exception as e:
             print(f"处理请求停止时出错: {e}")
             try:
-                if hasattr(self, 'resp_loading_overlay'):
-                    self.resp_loading_overlay.setVisible(False)
+                current_tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
+                if current_tab_index >= 0 and current_tab_index in self.response_widgets:
+                    overlay = self.response_widgets[current_tab_index]['loading_overlay']
+                    overlay.setVisible(False)
             except Exception as cleanup_error:
                 print(f"清理异常状态时出错: {cleanup_error}")
 
-    def save_response_to_file(self):
+    def save_response_to_file(self, tab_index=None):
         """保存响应到文件"""
-        # 优先保存原始bytes（如有），否则用文本内容编码
-        data = getattr(self, '_last_response_bytes', None)
-        if data is None:
-            text = self.resp_body_edit.toPlainText()
-            if not text.strip():
-                QMessageBox.warning(self, 'No Response', '响应体为空，无法保存！')
-                return
-            data = text.encode('utf-8')
+        if tab_index is None:
+            tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
+            
+        if tab_index < 0 or tab_index not in self.response_widgets:
+            QMessageBox.warning(self, 'No Response', '没有找到对应的响应区域！')
+            return
+            
+        response_widget = self.response_widgets[tab_index]
+        body_edit = response_widget['body_edit']
+        
+        # 获取响应内容
+        text = body_edit.toPlainText()
+        if not text.strip():
+            QMessageBox.warning(self, 'No Response', '响应体为空，无法保存！')
+            return
+            
         fname, _ = QFileDialog.getSaveFileName(self, 'Save Response', '', 'All Files (*)')
         if fname:
             try:
-                with open(fname, 'wb') as f:
-                    f.write(data)
+                with open(fname, 'w', encoding='utf-8') as f:
+                    f.write(text)
+                self.log_info(f'Saved response to file: {fname}')
             except Exception as e:
                 QMessageBox.warning(self, 'Save Failed', f'保存失败: {e}')
 
-    def clear_response(self):
+    def clear_response(self, tab_index=None):
         """清除响应"""
-        self.resp_body_edit.clear()
-        self.resp_status_label.setText('Click Send to get a response')
-        self.resp_tabs.setTabText(0, 'Body')
-        self.resp_tabs.widget(1).setPlainText('')
+        if tab_index is None:
+            tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
+            
+        if tab_index < 0 or tab_index not in self.response_widgets:
+            return
+            
+        response_widget = self.response_widgets[tab_index]
+        body_edit = response_widget['body_edit']
+        status_label = response_widget['status_label']
+        headers_widget = response_widget['headers_widget']
+        tabs = response_widget['tabs']
+        
+        body_edit.clear()
+        status_label.setText('Click Send to get a response')
+        tabs.setTabText(0, 'Body')
+        headers_widget.setPlainText('')
 
     def on_req_tab_changed(self, idx):
         self.ensure_req_tabs()
         """请求标签页改变事件"""
         if idx >= 0 and hasattr(self, 'req_tabs'):
+            # 切换Response区域
+            self.show_response_for_tab(idx)
+            
             current_editor = self.req_tabs.widget(idx)
             if current_editor:
                 # 在集合树中选中对应的请求
@@ -1018,14 +1185,17 @@ class MainWindow(QWidget):
                         break
 
     def on_req_tab_closed(self, idx):
-        self.ensure_req_tabs()
-        """请求标签页关闭事件"""
-        if hasattr(self, 'req_tabs'):
-            self.req_tabs.removeTab(idx)
-            
-            # 如果没有标签页了，显示欢迎页
-            if self.req_tabs.count() == 0:
-                self.check_and_show_welcome_page()
+        """Tab关闭事件"""
+        # 移除对应的Response区域
+        self.remove_response_for_tab(idx)
+        
+        # 移除Tab
+        self.req_tabs.removeTab(idx)
+        
+        # 检查是否还有Tab
+        if self.req_tabs.count() == 0:
+            # 没有Tab了，显示欢迎页
+            self.check_and_show_welcome_page()
 
     def show_tab_context_menu(self, pos):
         self.ensure_req_tabs()
@@ -1233,27 +1403,38 @@ class MainWindow(QWidget):
         add_collection_to_tree(self.collection_tree, new_data)
 
     def create_collection(self):
-        """创建新集合"""
-        name, ok = QInputDialog.getText(self, 'New Collection', 'Enter collection name:')
-        if not ok or not name.strip():
-            return
-        name = name.strip()
+        """从File菜单创建新集合"""
+        from PyQt5.QtWidgets import QInputDialog, QMessageBox
+        from PyQt5.QtWidgets import QTreeWidgetItem
+        from PyQt5.QtCore import Qt
         
+        # 检查重复名称
         def is_duplicate(tree, name):
             for i in range(tree.topLevelItemCount()):
                 if tree.topLevelItem(i).text(0) == name:
                     return True
             return False
         
-        if is_duplicate(self.collection_tree, name):
-            self.log_warning(f'Create Collection failed: A collection named "{name}" already exists')
-            QMessageBox.warning(self, 'Create Failed', f'A collection named "{name}" already exists!')
+        # 获取集合名称
+        name, ok = QInputDialog.getText(self, 'Create Collection', 'Enter collection name:')
+        if not ok or not name.strip():
             return
         
-        item = QTreeWidgetItem(self.collection_tree, [name])
-        item.setIcon(0, self.folder_icon)
+        name = name.strip()
+        
+        # 检查重复
+        if is_duplicate(self.collection_tree, name):
+            QMessageBox.warning(self, 'Error', f'Collection "{name}" already exists!')
+            return
+        
+        # 创建集合节点
+        collection_item = QTreeWidgetItem([name])
+        collection_item.setIcon(0, self.folder_icon)
+        self.collection_tree.addTopLevelItem(collection_item)
+        
+        # 保存到collections.json
         self.save_all()
-        self.log_info(f'Create Collection: "{name}"')
+        self.log_info(f'Create new collection: {name}')
 
     def save_collection_as(self):
         """从File菜单另存为集合文件"""
@@ -1347,7 +1528,83 @@ class MainWindow(QWidget):
     # 菜单事件处理
     def show_about(self):
         """显示关于对话框"""
-        dialog = AboutDialog(self)
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel
+        from PyQt5.QtCore import QTimer
+        from PyQt5.QtGui import QPixmap
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle('About')
+        dialog.setMinimumWidth(450)
+        layout = QVBoxLayout(dialog)
+        
+        # 图标
+        icon_label = QLabel()
+        icon_path = self.get_icon_path()
+        if icon_path and os.path.exists(icon_path):
+            pixmap = QPixmap(icon_path)
+            icon_label.setPixmap(pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            icon_label.setText('🦸')
+            icon_label.setStyleSheet('font-size: 48px;')
+        icon_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(icon_label)
+        
+        # 应用信息
+        about_text = '''postsuperman
+
+A Postman-like API debugging tool.
+
+Features:
+• Multi-tab request management
+• Parameter, header, and body editing
+• cURL import and export
+• Response highlighting and formatting
+• Collection management
+• Environment support
+• Request history
+
+Powered by Python & PyQt5
+
+Developed by xuzhenkang@hotmail.com
+
+https://github.com/xuzhenkang/postsuperman
+
+Version: 1.0.0'''
+        
+        about_edit = QTextEdit()
+        about_edit.setReadOnly(True)
+        about_edit.setPlainText(about_text)
+        about_edit.setMaximumHeight(300)
+        about_edit.setStyleSheet('text-align: left;')
+        layout.addWidget(about_edit)
+        
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        copy_btn = QPushButton('Copy Info')
+        copy_btn.setFixedWidth(120)
+        btn_row.addWidget(copy_btn)
+        layout.addLayout(btn_row)
+        
+        def do_copy():
+            from PyQt5.QtWidgets import QApplication
+            clipboard = QApplication.clipboard()
+            clipboard.setText(about_text)
+            
+            # 改变按钮文本为"Copied"
+            copy_btn.setText('Copied')
+            copy_btn.setEnabled(False)
+            
+            # 2秒后恢复按钮状态
+            timer = QTimer(dialog)
+            timer.setSingleShot(True)
+            def restore_button():
+                copy_btn.setText('Copy Info')
+                copy_btn.setEnabled(True)
+                timer.deleteLater()
+            timer.timeout.connect(restore_button)
+            timer.start(2000)  # 2000毫秒 = 2秒
+        
+        copy_btn.clicked.connect(do_copy)
         dialog.exec_()
 
     def update_tab_title(self, old_name, new_name):
@@ -1359,30 +1616,462 @@ class MainWindow(QWidget):
                     break
         
     def show_doc(self):
-        """显示文档"""
-        self.log_info("显示文档")
-        # 实现显示文档逻辑
+        """显示用户手册对话框"""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel, QScrollArea, QWidget
+        from PyQt5.QtCore import Qt
+        from PyQt5.QtGui import QFont, QTextCursor
         
+        dialog = QDialog(self)
+        dialog.setWindowTitle('PostSuperman 用户手册')
+        dialog.setMinimumSize(800, 600)
+        dialog.resize(1000, 700)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # 标题
+        title_label = QLabel('📖 PostSuperman 用户使用手册')
+        title_label.setStyleSheet('font-size: 20px; font-weight: bold; color: #333; margin: 10px;')
+        title_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # 创建滚动区域
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        # 创建内容容器
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(20, 10, 20, 10)
+        
+        # 读取用户手册内容
+        manual_content = self.get_user_manual_content()
+        
+        # 创建文本编辑器显示手册内容
+        manual_edit = QTextEdit()
+        manual_edit.setReadOnly(True)
+        
+        # 将Markdown内容转换为HTML格式
+        html_content = self.convert_markdown_to_html(manual_content)
+        manual_edit.setHtml(html_content)
+        
+        manual_edit.setStyleSheet('''
+            QTextEdit {
+                font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+                background-color: #ffffff;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                padding: 15px;
+            }
+        ''')
+        
+        # 设置字体
+        font = QFont("Microsoft YaHei", 10)
+        manual_edit.setFont(font)
+        
+        content_layout.addWidget(manual_edit)
+        
+        # 设置滚动区域的内容
+        scroll_area.setWidget(content_widget)
+        layout.addWidget(scroll_area)
+        
+        # 底部按钮
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        # 复制按钮
+        copy_btn = QPushButton('📋 复制到剪贴板')
+        copy_btn.setFixedWidth(150)
+        copy_btn.clicked.connect(lambda: self.copy_manual_to_clipboard(manual_content, copy_btn))
+        
+        # 关闭按钮
+        close_btn = QPushButton('关闭')
+        close_btn.setFixedWidth(100)
+        close_btn.clicked.connect(dialog.accept)
+        
+        btn_layout.addWidget(copy_btn)
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+        
+        dialog.exec_()
+
+    def copy_manual_to_clipboard(self, content, button):
+        """复制手册内容到剪贴板"""
+        from PyQt5.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        clipboard.setText(content)
+        
+        # 改变按钮文本
+        original_text = button.text()
+        button.setText('已复制')
+        button.setEnabled(False)
+        
+        # 2秒后恢复按钮状态
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        def restore_button():
+            button.setText(original_text)
+            button.setEnabled(True)
+            timer.deleteLater()
+        timer.timeout.connect(restore_button)
+        timer.start(2000)
+
     def show_contact(self):
-        """显示联系信息"""
-        self.log_info("显示联系信息")
-        # 实现显示联系信息逻辑
+        """显示联系信息对话框"""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel
+        from PyQt5.QtCore import QTimer
         
+        dialog = QDialog(self)
+        dialog.setWindowTitle('Contact Me')
+        dialog.setMinimumWidth(400)
+        layout = QVBoxLayout(dialog)
+        
+        # 联系信息
+        contact_text = '''Contact Information
+
+Email: xuzhenkang@hotmail.com
+
+GitHub: https://github.com/xuzhenkang/postsuperman
+
+Issues: https://github.com/xuzhenkang/postsuperman/issues
+
+Features & Bugs: Please report via GitHub issues
+
+Thank you for using PostSuperman!'''
+        
+        contact_edit = QTextEdit()
+        contact_edit.setReadOnly(True)
+        contact_edit.setPlainText(contact_text)
+        contact_edit.setMaximumHeight(200)
+        layout.addWidget(contact_edit)
+        
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        copy_btn = QPushButton('Copy Email')
+        copy_btn.setFixedWidth(120)
+        btn_row.addWidget(copy_btn)
+        layout.addLayout(btn_row)
+        
+        def do_copy():
+            from PyQt5.QtWidgets import QApplication
+            clipboard = QApplication.clipboard()
+            clipboard.setText('xuzhenkang@hotmail.com')
+            
+            # 改变按钮文本为"Copied"
+            copy_btn.setText('Copied')
+            copy_btn.setEnabled(False)
+            
+            # 2秒后恢复按钮状态
+            timer = QTimer(dialog)
+            timer.setSingleShot(True)
+            def restore_button():
+                copy_btn.setText('Copy Email')
+                copy_btn.setEnabled(True)
+                timer.deleteLater()
+            timer.timeout.connect(restore_button)
+            timer.start(2000)  # 2000毫秒 = 2秒
+        
+        copy_btn.clicked.connect(do_copy)
+        dialog.exec_()
+
     # 集合相关事件处理
     def show_collection_menu(self, pos):
-        """显示集合菜单"""
-        self.log_info("显示集合菜单")
-        # 实现集合菜单逻辑
+        """显示集合右键菜单"""
+        from PyQt5.QtWidgets import QMenu, QMessageBox, QInputDialog
+        item = self.collection_tree.itemAt(pos)
+        menu = QMenu(self)
+        
+        # 判断节点类型
+        def is_request(item):
+            return (
+                item is not None and
+                item.childCount() == 0 and
+                item.parent() is not None and
+                item.icon(0).cacheKey() == self.file_icon.cacheKey()
+            )
+        def is_collection(item):
+            return item is not None and not is_request(item)
+        
+        # 菜单生成
+        new_collection_action = None
+        new_req_action = None
+        rename_action = None
+        delete_action = None
+        
+        if item is None:
+            # 空白处右键菜单
+            new_collection_action = menu.addAction('New Collection')
+        elif is_collection(item):
+            # Collection节点右键菜单
+            new_collection_action = menu.addAction('New Collection')
+            new_req_action = menu.addAction('New Request')
+            menu.addSeparator()
+            rename_action = menu.addAction('Rename')
+            delete_action = menu.addAction('Delete')
+        elif is_request(item):
+            # Request节点右键菜单
+            rename_action = menu.addAction('Rename')
+            delete_action = menu.addAction('Delete')
+        
+        action = menu.exec_(self.collection_tree.viewport().mapToGlobal(pos))
+        
+        # 处理空白处的New Collection
+        if item is None and action and action.text() == 'New Collection':
+            name, ok = QInputDialog.getText(self, 'New Collection', 'Enter collection name:')
+            if not ok or not name.strip():
+                return
+            name = name.strip()
+            def is_duplicate(tree, name):
+                for i in range(tree.topLevelItemCount()):
+                    if tree.topLevelItem(i).text(0) == name:
+                        return True
+                return False
+            if is_duplicate(self.collection_tree, name):
+                QMessageBox.warning(self, 'Create Failed', f'A collection named "{name}" already exists!')
+                return
+            item = QTreeWidgetItem(self.collection_tree, [name])
+            item.setIcon(0, self.folder_icon)
+            self.save_all()
+            self.log_info(f'Create Collection: "{name}"')
+            return
+            
+        # 处理Collection节点的菜单
+        if item is not None and is_collection(item) and new_collection_action and action == new_collection_action:
+            name, ok = QInputDialog.getText(self, 'New Collection', 'Enter collection name:')
+            if not ok or not name.strip():
+                return
+            name = name.strip()
+            # 检查重名（只在该节点下）
+            for i in range(item.childCount()):
+                sibling = item.child(i)
+                if sibling and sibling.text(0) == name:
+                    QMessageBox.warning(self, 'Create Failed', f'A collection named "{name}" already exists in this collection!')
+                    return
+            new_item = QTreeWidgetItem(item, [name])
+            new_item.setIcon(0, self.folder_icon)
+            item.setExpanded(True)
+            self.save_all()
+            return
+        elif 'new_req_action' in locals() and new_req_action and action == new_req_action:
+            # 弹出对话框让用户输入Request名称
+            from PyQt5.QtWidgets import QInputDialog, QMessageBox
+            
+            # 获取当前选中的项（右键点击的Collection）
+            selected_collection = item
+            
+            # 如果选中的是Request节点，弹出提示
+            if selected_collection and selected_collection.childCount() == 0 and selected_collection.parent() is not None:
+                QMessageBox.information(
+                    self,
+                    'Cannot Create Request',
+                    'Cannot create a request under another request.\n\nPlease select a collection to create a new request.'
+                )
+                return
+            
+            request_name, ok = QInputDialog.getText(
+                self, 
+                'New Request', 
+                'Enter request name:',
+                text='New Request'
+            )
+            
+            if not ok or not request_name.strip():
+                return  # 用户取消或输入为空
+            
+            # 检查名称是否重复
+            def check_name_exists(parent_item, name):
+                for i in range(parent_item.childCount()):
+                    if parent_item.child(i).text(0) == name:
+                        return True
+                return False
+            
+            # 检查名称是否在父Collection中重复
+            if check_name_exists(selected_collection, request_name):
+                QMessageBox.warning(
+                    self, 
+                    'Duplicate Name', 
+                    f'A request named "{request_name}" already exists in this collection!'
+                )
+                return
+            
+            # 确保请求区域已创建
+            self.ensure_req_tabs()
+            
+            # 生成包含Collection路径的Tab标签
+            def get_collection_path(parent_collection):
+                path_parts = []
+                current = parent_collection
+                while current is not None:
+                    path_parts.insert(0, current.text(0))
+                    current = current.parent()
+                return '/'.join(path_parts)
+            
+            collection_path = get_collection_path(selected_collection)
+            full_request_path = f"{collection_path}/{request_name}"
+            
+            # 创建新的请求编辑器
+            from ui.widgets.request_editor import RequestEditor
+            req_editor = RequestEditor(self, req_name=request_name)
+            tab_index = self.req_tabs.addTab(req_editor, full_request_path)
+            self.req_tabs.setCurrentWidget(req_editor)
+            
+            # 为新Tab创建Response区域
+            self.show_response_for_tab(tab_index)
+            
+            # 自动保存新请求到collections.json
+            self.save_new_request_to_collections(req_editor, request_name, selected_collection)
+            
+            # 在树中选中新创建的Request
+            new_request_item = None
+            for i in range(selected_collection.childCount()):
+                child = selected_collection.child(i)
+                if child.text(0) == request_name:
+                    new_request_item = child
+                    break
+            
+            if new_request_item:
+                self.collection_tree.setCurrentItem(new_request_item)
+                self.collection_tree.scrollToItem(new_request_item)
+            
+            self.log_info(f'Create new request "{request_name}" in collection: {selected_collection.text(0)}')
+            return
+        elif rename_action and action == rename_action:
+            name, ok = QInputDialog.getText(self, 'Rename', 'Enter new name:', text=item.text(0))
+            if not ok or not name.strip():
+                return
+            name = name.strip()
+            if '*' in name:
+                QMessageBox.warning(self, 'Invalid Name', 'Request name cannot contain asterisk (*) character!')
+                return
+            if item.parent() is None:
+                for i in range(self.collection_tree.topLevelItemCount()):
+                    if self.collection_tree.topLevelItem(i) != item and self.collection_tree.topLevelItem(i).text(0) == name:
+                        QMessageBox.warning(self, 'Rename Failed', f'A collection named "{name}" already exists!')
+                        return
+            else:
+                parent = item.parent()
+                for i in range(parent.childCount()):
+                    if parent.child(i) != item and parent.child(i).text(0) == name:
+                        QMessageBox.warning(self, 'Rename Failed', f'A request named "{name}" already exists in this collection!')
+                        return
+            old_name = item.text(0)
+            item.setText(0, name)
+            # 重命名后保持图标
+            if item.childCount() == 0:
+                item.setIcon(0, self.file_icon)
+            else:
+                item.setIcon(0, self.folder_icon)
+            # 如果是Request节点，同步更新右侧标签页
+            if item.childCount() == 0 and item.parent() is not None:
+                self.update_tab_title(old_name, name)
+                self.log_info(f'Rename Request: "{old_name}" -> "{name}"')
+            else:
+                # 这是Collection节点，需要更新所有相关的Tab标签
+                self.update_tabs_for_collection_rename(old_name, name)
+                self.log_info(f'Rename Collection: "{old_name}" -> "{name}"')
+            self.save_all()
+            return
+        elif delete_action and action == delete_action:
+            # 判断是否为Collection节点
+            if item.childCount() > 0:
+                # 这是Collection节点，需要确认删除
+                child_count = item.childCount()
+                choice = QMessageBox.question(
+                    self, 
+                    'Delete Collection', 
+                    f'Are you sure you want to delete the collection "{item.text(0)}"?\n\n'
+                    f'This will also delete all {child_count} child item(s) in this collection.\n\n'
+                    'This action cannot be undone.',
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                
+                if choice == QMessageBox.Yes:
+                    # 删除Collection及其所有子节点
+                    if item.parent() is None:
+                        # 删除顶级集合
+                        self.collection_tree.takeTopLevelItem(self.collection_tree.indexOfTopLevelItem(item))
+                    else:
+                        # 删除子项
+                        item.parent().removeChild(item)
+                    self.save_all()
+                    self.log_info(f'Delete collection "{item.text(0)}" with {child_count} child items')
+                return
+            else:
+                # 这是Request节点，直接删除
+                if item.parent() is None:
+                    # 删除顶级集合
+                    self.collection_tree.takeTopLevelItem(self.collection_tree.indexOfTopLevelItem(item))
+                else:
+                    # 删除子项
+                    item.parent().removeChild(item)
+                self.save_all()
+                self.log_info(f'Delete request "{item.text(0)}"')
+                return
         
     def on_collection_item_double_clicked(self, item, column):
         """集合项双击事件"""
         self.log_info("集合项双击")
         # 实现双击逻辑
         
-    def collection_drop_event_only_top_level(self, event):
-        """集合拖放事件"""
-        # 实现拖放逻辑
-        pass
+
+            
+    def get_item_paths_for_tabs(self, item):
+        """获取项的所有可能路径，用于Tab更新"""
+        paths = []
+        
+        def get_path(current_item):
+            path_parts = []
+            current = current_item
+            while current is not None:
+                path_parts.insert(0, current.text(0))
+                current = current.parent()
+            return '/'.join(path_parts)
+            
+        # 获取当前路径
+        current_path = get_path(item)
+        paths.append(current_path)
+        
+        # 如果是Collection，获取所有子Request的路径
+        if item.childCount() > 0:
+            for i in range(item.childCount()):
+                child_path = get_path(item.child(i))
+                paths.append(child_path)
+                
+        return paths
+        
+    def update_tabs_after_drag(self, moved_item, old_paths):
+        """拖拽后更新Tab路径"""
+        if not hasattr(self, 'req_tabs') or self.req_tabs is None:
+            return
+            
+        # 获取新的路径
+        new_paths = self.get_item_paths_for_tabs(moved_item)
+        
+        # 更新Tab标题
+        for i in range(self.req_tabs.count()):
+            tab_text = self.req_tabs.tabText(i)
+            
+            # 检查是否需要更新
+            for old_path in old_paths:
+                if old_path in tab_text:
+                    # 找到对应的新路径
+                    for new_path in new_paths:
+                        if self.get_request_name_from_path(old_path) == self.get_request_name_from_path(new_path):
+                            # 更新Tab标题
+                            new_tab_text = tab_text.replace(old_path, new_path)
+                            self.req_tabs.setTabText(i, new_tab_text)
+                            self.log_info(f'Updated tab after drag: "{tab_text}" -> "{new_tab_text}"')
+                            break
+                            
+    def get_request_name_from_path(self, path):
+        """从路径中提取请求名称"""
+        if '/' in path:
+            return path.split('/')[-1]
+        return path
 
     def closeEvent(self, event):
         """关闭事件处理"""
@@ -1467,16 +2156,18 @@ class MainWindow(QWidget):
         # 文件选择区域
         file_label = QLabel('File Path:')
         file_label.setVisible(False)
-        layout.addWidget(file_label)
-        
-        file_layout = QHBoxLayout()
-        file_path_edit = QLineEdit()
-        file_path_edit.setReadOnly(True)
-        file_browse_btn = QPushButton('Browse')
-        file_layout.addWidget(file_path_edit)
-        file_layout.addWidget(file_browse_btn)
-        file_layout.setVisible(False)
-        layout.addLayout(file_layout)
+        # File选择区
+        file_widget = QWidget()
+        file_layout = QVBoxLayout(file_widget)
+        file_layout.setContentsMargins(0, 0, 0, 0)
+        file_select_btn = QPushButton('touch to select file')
+        file_select_btn.setFixedHeight(80)
+        file_select_btn.setStyleSheet('font-size:18px; color:#1976d2; background: #f5f5f5; border:1px dashed #1976d2;')
+        file_layout.addStretch()
+        file_layout.addWidget(file_select_btn, alignment=Qt.AlignCenter)
+        file_layout.addStretch()
+        file_widget.setVisible(False)
+        layout.addWidget(file_widget)
         
         # 按钮
         button_layout = QHBoxLayout()
@@ -1491,12 +2182,10 @@ class MainWindow(QWidget):
         def on_radio_changed():
             if curl_radio.isChecked():
                 curl_text.setVisible(True)
-                file_label.setVisible(False)
-                file_layout.setVisible(False)
+                file_widget.setVisible(False)
             else:
                 curl_text.setVisible(False)
-                file_label.setVisible(True)
-                file_layout.setVisible(True)
+                file_widget.setVisible(True)
         
         curl_radio.toggled.connect(on_radio_changed)
         file_radio.toggled.connect(on_radio_changed)
@@ -1577,13 +2266,18 @@ class MainWindow(QWidget):
                 QMessageBox.warning(dialog, 'Error', f'Failed to parse cURL command: {e}')
         
         def import_file():
-            file_path = file_path_edit.text().strip()
-            if not file_path:
-                QMessageBox.warning(dialog, 'Error', 'Please select a file!')
+            # 直接打开文件选择对话框
+            fname, _ = QFileDialog.getOpenFileName(
+                dialog, 
+                'Select File', 
+                '', 
+                'All Files (*);;JSON Files (*.json);;Text Files (*.txt)'
+            )
+            if not fname:
                 return
             
             try:
-                with open(file_path, 'r', encoding='utf-8') as f:
+                with open(fname, 'r', encoding='utf-8') as f:
                     content = f.read()
                 
                 # 尝试解析为JSON
@@ -1691,7 +2385,7 @@ class MainWindow(QWidget):
                 'All Files (*);;JSON Files (*.json);;Text Files (*.txt)'
             )
             if fname:
-                file_path_edit.setText(fname)
+                file_select_btn.setText(fname)
         
         def on_import():
             if curl_radio.isChecked():
@@ -1701,7 +2395,7 @@ class MainWindow(QWidget):
         
         import_btn.clicked.connect(on_import)
         cancel_btn.clicked.connect(dialog.reject)
-        file_browse_btn.clicked.connect(browse_file)
+        file_select_btn.clicked.connect(browse_file)
         
         dialog.exec_()
 
@@ -1728,3 +2422,173 @@ class MainWindow(QWidget):
             self._req_worker = None
             self._req_thread = None
             self._current_editor = None 
+
+    def show_curl_code(self):
+        """显示cURL代码对话框"""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel
+        from PyQt5.QtGui import QClipboard
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle('cURL')
+        dialog.setMinimumWidth(500)
+        layout = QVBoxLayout(dialog)
+        
+        # 获取当前请求编辑器
+        current_editor = self.req_tabs.currentWidget()
+        if not current_editor:
+            QMessageBox.warning(dialog, 'Error', 'No active request editor!')
+            return
+        
+        # 生成cURL命令
+        method = current_editor.method_combo.currentText()
+        url = current_editor.url_edit.text().strip()
+        
+        # 构建headers
+        headers = []
+        for row in range(current_editor.headers_table.rowCount() - 1):
+            key_item = current_editor.headers_table.item(row, 1)
+            value_item = current_editor.headers_table.item(row, 2)
+            if key_item and value_item and key_item.text().strip():
+                headers.append(f"-H '{key_item.text().strip()}: {value_item.text().strip()}'")
+        
+        # 构建cURL命令
+        curl_cmd = f"curl -X {method}"
+        if headers:
+            curl_cmd += f" {' '.join(headers)}"
+        curl_cmd += f" '{url}'"
+        
+        # 添加body数据
+        if current_editor.body_raw_radio.isChecked():
+            body_data = current_editor.raw_text_edit.toPlainText().strip()
+            if body_data:
+                curl_cmd += f" -d '{body_data}'"
+        
+        # 创建UI
+        label = QLabel('cURL command:')
+        layout.addWidget(label)
+        
+        curl_edit = QTextEdit()
+        curl_edit.setReadOnly(True)
+        curl_edit.setPlainText(curl_cmd)
+        layout.addWidget(curl_edit)
+        
+        # 按钮行
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        copy_btn = QPushButton('Copy')
+        copy_btn.setFixedWidth(80)
+        btn_layout.addWidget(copy_btn)
+        
+        layout.addLayout(btn_layout)
+        
+        # 复制功能
+        def do_copy():
+            clipboard = QApplication.clipboard()
+            clipboard.setText(curl_cmd)
+            QMessageBox.information(dialog, 'Success', 'cURL command copied to clipboard!')
+        
+        copy_btn.clicked.connect(do_copy)
+        dialog.exec_()
+
+    def export_request(self):
+        """导出当前请求"""
+        current_editor = self.req_tabs.currentWidget()
+        if not current_editor:
+            QMessageBox.warning(self, 'Error', 'No active request editor!')
+            return
+        
+        # 获取文件名
+        fname, _ = QFileDialog.getSaveFileName(
+            self, 
+            'Export Request', 
+            'request.json', 
+            'JSON Files (*.json);;All Files (*)'
+        )
+        if not fname:
+            return
+        
+        try:
+            # 序列化请求数据
+            request_data = current_editor.serialize_request()
+            
+            # 保存到文件
+            with open(fname, 'w', encoding='utf-8') as f:
+                json.dump(request_data, f, ensure_ascii=False, indent=2)
+            
+            QMessageBox.information(self, 'Success', f'Request exported to {fname}')
+            
+        except Exception as e:
+            QMessageBox.warning(self, 'Error', f'Failed to export request: {e}') 
+
+    def get_user_manual_content(self):
+        """获取用户手册内容"""
+        try:
+            manual_path = os.path.join(self._workspace_dir, 'docs', 'user_manual.md')
+            if os.path.exists(manual_path):
+                with open(manual_path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            else:
+                return "# PostSuperman 用户手册\n\n手册文件未找到。"
+        except Exception as e:
+            return f"# PostSuperman 用户手册\n\n读取手册文件时出错: {e}"
+
+    def convert_markdown_to_html(self, markdown_text):
+        """将Markdown转换为HTML"""
+        import re
+        
+        # 基本的Markdown到HTML转换
+        html = markdown_text
+        
+        # 标题转换
+        html = re.sub(r'^### (.*$)', r'<h3>\1</h3>', html, flags=re.MULTILINE)
+        html = re.sub(r'^## (.*$)', r'<h2>\1</h2>', html, flags=re.MULTILINE)
+        html = re.sub(r'^# (.*$)', r'<h1>\1</h1>', html, flags=re.MULTILINE)
+        
+        # 粗体和斜体
+        html = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html)
+        html = re.sub(r'\*(.*?)\*', r'<em>\1</em>', html)
+        
+        # 代码块
+        html = re.sub(r'```(.*?)```', r'<pre><code>\1</code></pre>', html, flags=re.DOTALL)
+        html = re.sub(r'`(.*?)`', r'<code>\1</code>', html)
+        
+        # 列表
+        html = re.sub(r'^\* (.*$)', r'<li>\1</li>', html, flags=re.MULTILINE)
+        html = re.sub(r'^- (.*$)', r'<li>\1</li>', html, flags=re.MULTILINE)
+        
+        # 段落
+        html = re.sub(r'\n\n', r'</p><p>', html)
+        html = f'<p>{html}</p>'
+        
+        # 清理空段落
+        html = re.sub(r'<p></p>', '', html)
+        
+        return html
+
+    def update_tabs_for_collection_rename(self, old_name, new_name):
+        """更新集合重命名后的所有相关标签页标题"""
+        if not hasattr(self, 'req_tabs') or self.req_tabs is None:
+            return
+            
+        for i in range(self.req_tabs.count()):
+            tab_text = self.req_tabs.tabText(i)
+            # 检查Tab标题是否包含旧的Collection名称
+            if old_name in tab_text:
+                # 替换路径中的Collection名称
+                new_tab_text = tab_text.replace(old_name, new_name)
+                self.req_tabs.setTabText(i, new_tab_text)
+                self.log_info(f'Updated tab title: "{tab_text}" -> "{new_tab_text}"')
+
+    def _get_parent_map(self):
+        parent_map = {}
+        def recurse(item):
+            for i in range(item.childCount()):
+                child = item.child(i)
+                parent_map[child] = item
+                recurse(child)
+        for i in range(self.collection_tree.topLevelItemCount()):
+            top = self.collection_tree.topLevelItem(i)
+            parent_map[top] = None
+            recurse(top)
+        return parent_map
