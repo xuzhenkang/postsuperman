@@ -496,48 +496,45 @@ class MainWindow(QWidget):
             'clear_btn': clear_resp_btn
         }
 
+    def get_tab_key(self, idx):
+        tab_text = self.req_tabs.tabText(idx)
+        if tab_text.endswith('*'):
+            tab_text = tab_text[:-1]
+        return tab_text
+
     def show_response_for_tab(self, tab_index):
-        """显示指定Tab对应的Response区域"""
         if not hasattr(self, 'response_widgets'):
             return
-            
+
+        tab_key = self.get_tab_key(tab_index)
+
         # 清除当前显示的所有Response区域
         for i in range(self.resp_container_layout.count()):
             widget = self.resp_container_layout.itemAt(i).widget()
             if widget:
                 self.resp_container_layout.removeWidget(widget)
                 widget.hide()
-        
+
         # 显示对应Tab的Response
-        if tab_index in self.response_widgets:
-            response_widget = self.response_widgets[tab_index]
+        if tab_key in self.response_widgets:
+            response_widget = self.response_widgets[tab_key]
             self.resp_container_layout.addWidget(response_widget['card'])
             response_widget['card'].show()
         else:
             # 如果该Tab还没有Response，创建一个
             response_widget = self.create_response_widget(tab_index)
-            self.response_widgets[tab_index] = response_widget
+            self.response_widgets[tab_key] = response_widget
             self.resp_container_layout.addWidget(response_widget['card'])
             response_widget['card'].show()
 
     def remove_response_for_tab(self, tab_index):
-        """移除指定Tab对应的Response区域"""
-        if hasattr(self, 'response_widgets') and tab_index in self.response_widgets:
-            response_widget = self.response_widgets[tab_index]
-            # 从容器中移除
-            self.resp_container_layout.removeWidget(response_widget['card'])
-            response_widget['card'].deleteLater()
-            # 从映射表中移除
-            del self.response_widgets[tab_index]
-            
-            # 如果还有其他Tab，显示第一个Tab的Response
-            if self.req_tabs.count() > 0:
-                current_index = self.req_tabs.currentIndex()
-                if current_index >= 0:
-                    self.show_response_for_tab(current_index)
-            else:
-                # 没有Tab了，显示欢迎页
-                self.check_and_show_welcome_page()
+        if hasattr(self, 'response_widgets'):
+            tab_key = self.get_tab_key(tab_index)
+            if tab_key in self.response_widgets:
+                response_widget = self.response_widgets[tab_key]
+                self.resp_container_layout.removeWidget(response_widget['card'])
+                response_widget['card'].deleteLater()
+                del self.response_widgets[tab_key]
 
     # 核心功能实现
     def create_new_request(self):
@@ -784,37 +781,28 @@ class MainWindow(QWidget):
         """发送请求 - threading版本"""
         try:
             self.ensure_req_tabs()
-            
-            # 检查发送状态
             if self._sending_request:
                 print("已有请求正在发送中，忽略此次点击")
                 return
-                
             if editor is None:
                 editor = self.req_tabs.currentWidget()
             if editor is None:
                 self.log_warning('未找到请求编辑器')
                 return
-                
             print("开始发送新请求...")
-            # 清理之前的请求
             if hasattr(self, '_req_worker') and self._req_worker:
                 print("停止之前的请求")
                 self._req_worker.stop()
                 self._req_worker.cleanup()  # 手动清理资源
             self._req_worker = None
             self._sending_request = True
-            
-            # 立即更新按钮状态：Send变灰，Stop可用
             if hasattr(editor, 'send_btn'):
                 print("立即禁用Send按钮")
                 editor.send_btn.setEnabled(False)
             if hasattr(editor, 'stop_btn'):
                 print("立即启用Stop按钮")
                 editor.stop_btn.setEnabled(True)
-                
             self.log_info(f'发送HTTP请求: {editor.method_combo.currentText()} {editor.url_edit.text().strip()}')
-            
             # 拼接Params
             params = []
             for i in range(editor.params_table.rowCount()):
@@ -874,8 +862,9 @@ class MainWindow(QWidget):
                         data = raw_text
             # 显示加载动画
             current_tab_index = self.req_tabs.currentIndex()
-            if current_tab_index >= 0 and current_tab_index in self.response_widgets:
-                overlay = self.response_widgets[current_tab_index]['loading_overlay']
+            tab_key = self.get_tab_key(current_tab_index)
+            if current_tab_index >= 0 and tab_key in self.response_widgets:
+                overlay = self.response_widgets[tab_key]['loading_overlay']
                 overlay.setGeometry(0, 0, overlay.parent().width(), overlay.parent().height())
                 overlay.raise_()
                 overlay.setVisible(True)
@@ -917,11 +906,12 @@ class MainWindow(QWidget):
             
             # 获取当前Tab索引
             current_tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
+            tab_key = self.get_tab_key(current_tab_index)
             
             # 确保遮罩层被隐藏
             try:
-                if current_tab_index >= 0 and current_tab_index in self.response_widgets:
-                    overlay = self.response_widgets[current_tab_index]['loading_overlay']
+                if current_tab_index >= 0 and tab_key in self.response_widgets:
+                    overlay = self.response_widgets[tab_key]['loading_overlay']
                     overlay.setVisible(False)
             except Exception as e:
                 print(f"隐藏遮罩层时出错: {e}")
@@ -952,8 +942,8 @@ class MainWindow(QWidget):
             
             # 处理 RequestWorker 返回的结果格式
             try:
-                if current_tab_index >= 0 and current_tab_index in self.response_widgets:
-                    response_widget = self.response_widgets[current_tab_index]
+                if current_tab_index >= 0 and tab_key in self.response_widgets:
+                    response_widget = self.response_widgets[tab_key]
                     status_code = result.get('status_code', 0)
                     status_text = result.get('status_text', 'Unknown')
                     elapsed = result.get('elapsed', 0) * 1000
@@ -988,8 +978,9 @@ class MainWindow(QWidget):
             try:
                 self._sending_request = False
                 current_tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
-                if current_tab_index >= 0 and current_tab_index in self.response_widgets:
-                    overlay = self.response_widgets[current_tab_index]['loading_overlay']
+                tab_key = self.get_tab_key(current_tab_index)
+                if current_tab_index >= 0 and tab_key in self.response_widgets:
+                    overlay = self.response_widgets[tab_key]['loading_overlay']
                     overlay.setVisible(False)
                 current_editor = self.req_tabs.currentWidget() if hasattr(self, 'req_tabs') and self.req_tabs else None
                 if current_editor and hasattr(current_editor, 'send_btn'):
@@ -1007,10 +998,11 @@ class MainWindow(QWidget):
             
             # 获取当前Tab索引
             current_tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
+            tab_key = self.get_tab_key(current_tab_index)
             
             try:
-                if current_tab_index >= 0 and current_tab_index in self.response_widgets:
-                    overlay = self.response_widgets[current_tab_index]['loading_overlay']
+                if current_tab_index >= 0 and tab_key in self.response_widgets:
+                    overlay = self.response_widgets[tab_key]['loading_overlay']
                     overlay.setVisible(False)
             except Exception as e:
                 print(f"隐藏遮罩层时出错: {e}")
@@ -1039,8 +1031,8 @@ class MainWindow(QWidget):
             self._current_editor = None
             
             try:
-                if current_tab_index >= 0 and current_tab_index in self.response_widgets:
-                    response_widget = self.response_widgets[current_tab_index]
+                if current_tab_index >= 0 and tab_key in self.response_widgets:
+                    response_widget = self.response_widgets[tab_key]
                     response_widget['status_label'].setText(f'Error: {msg}')
                     response_widget['body_edit'].setPlainText(f'Request failed: {msg}')
                     response_widget['tabs'].setCurrentIndex(0)
@@ -1051,8 +1043,9 @@ class MainWindow(QWidget):
             try:
                 self._sending_request = False
                 current_tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
-                if current_tab_index >= 0 and current_tab_index in self.response_widgets:
-                    overlay = self.response_widgets[current_tab_index]['loading_overlay']
+                tab_key = self.get_tab_key(current_tab_index)
+                if current_tab_index >= 0 and tab_key in self.response_widgets:
+                    overlay = self.response_widgets[tab_key]['loading_overlay']
                     overlay.setVisible(False)
                 current_editor = self.req_tabs.currentWidget() if hasattr(self, 'req_tabs') and self.req_tabs else None
                 if current_editor and hasattr(current_editor, 'send_btn'):
@@ -1070,6 +1063,7 @@ class MainWindow(QWidget):
             
             # 获取当前Tab索引
             current_tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
+            tab_key = self.get_tab_key(current_tab_index)
             
             # 立即恢复Send按钮状态
             try:
@@ -1092,8 +1086,8 @@ class MainWindow(QWidget):
             
             # 确保遮罩层被隐藏
             try:
-                if current_tab_index >= 0 and current_tab_index in self.response_widgets:
-                    overlay = self.response_widgets[current_tab_index]['loading_overlay']
+                if current_tab_index >= 0 and tab_key in self.response_widgets:
+                    overlay = self.response_widgets[tab_key]['loading_overlay']
                     overlay.setVisible(False)
             except Exception as e:
                 print(f"隐藏遮罩层时出错: {e}")
@@ -1109,8 +1103,9 @@ class MainWindow(QWidget):
             print(f"处理请求停止时出错: {e}")
             try:
                 current_tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
-                if current_tab_index >= 0 and current_tab_index in self.response_widgets:
-                    overlay = self.response_widgets[current_tab_index]['loading_overlay']
+                tab_key = self.get_tab_key(current_tab_index)
+                if current_tab_index >= 0 and tab_key in self.response_widgets:
+                    overlay = self.response_widgets[tab_key]['loading_overlay']
                     overlay.setVisible(False)
             except Exception as cleanup_error:
                 print(f"清理异常状态时出错: {cleanup_error}")
@@ -1119,20 +1114,16 @@ class MainWindow(QWidget):
         """保存响应到文件"""
         if tab_index is None:
             tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
-            
-        if tab_index < 0 or tab_index not in self.response_widgets:
+        tab_key = self.get_tab_key(tab_index)
+        if tab_index < 0 or tab_key not in self.response_widgets:
             QMessageBox.warning(self, 'No Response', '没有找到对应的响应区域！')
             return
-            
-        response_widget = self.response_widgets[tab_index]
+        response_widget = self.response_widgets[tab_key]
         body_edit = response_widget['body_edit']
-        
-        # 获取响应内容
         text = body_edit.toPlainText()
         if not text.strip():
             QMessageBox.warning(self, 'No Response', '响应体为空，无法保存！')
             return
-            
         fname, _ = QFileDialog.getSaveFileName(self, 'Save Response', '', 'All Files (*)')
         if fname:
             try:
@@ -1146,16 +1137,14 @@ class MainWindow(QWidget):
         """清除响应"""
         if tab_index is None:
             tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
-            
-        if tab_index < 0 or tab_index not in self.response_widgets:
+        tab_key = self.get_tab_key(tab_index)
+        if tab_index < 0 or tab_key not in self.response_widgets:
             return
-            
-        response_widget = self.response_widgets[tab_index]
+        response_widget = self.response_widgets[tab_key]
         body_edit = response_widget['body_edit']
         status_label = response_widget['status_label']
         headers_widget = response_widget['headers_widget']
         tabs = response_widget['tabs']
-        
         body_edit.clear()
         status_label.setText('Click Send to get a response')
         tabs.setTabText(0, 'Body')
@@ -1167,25 +1156,27 @@ class MainWindow(QWidget):
         if idx >= 0 and hasattr(self, 'req_tabs'):
             # 切换Response区域
             self.show_response_for_tab(idx)
-            
-            current_editor = self.req_tabs.widget(idx)
-            if current_editor:
-                # 在集合树中选中对应的请求
-                def find_and_select(item):
-                    for i in range(item.childCount()):
-                        child = item.child(i)
-                        if child.childCount() == 0:  # request
-                            if child.text(0) == current_editor.req_name:
-                                self.collection_tree.setCurrentItem(child)
-                                return True
-                        else:  # collection
-                            if find_and_select(child):
-                                return True
-                    return False
-                
-                for i in range(self.collection_tree.topLevelItemCount()):
-                    if find_and_select(self.collection_tree.topLevelItem(i)):
-                        break
+
+            # 获取当前Tab的完整路径
+            tab_path = self.req_tabs.tabText(idx)
+            # 去掉星号
+            if tab_path.endswith('*'):
+                tab_path = tab_path[:-1]
+
+            # 遍历树，找到路径完全匹配的节点
+            def find_and_select_by_path(item, target_path):
+                current_path = self.build_item_path(item)
+                if current_path == target_path:
+                    self.collection_tree.setCurrentItem(item)
+                    return True
+                for i in range(item.childCount()):
+                    if find_and_select_by_path(item.child(i), target_path):
+                        return True
+                return False
+
+            for i in range(self.collection_tree.topLevelItemCount()):
+                if find_and_select_by_path(self.collection_tree.topLevelItem(i), tab_path):
+                    break
 
     def on_req_tab_closed(self, idx):
         """Tab关闭事件"""
@@ -1264,9 +1255,8 @@ class MainWindow(QWidget):
                 tab_text = self.req_tabs.tabText(i)
                 if '*' in tab_text:
                     unsaved_tabs.append(tab_text.replace("*", ""))
-        
+
         if unsaved_tabs:
-            # 显示确认对话框
             from PyQt5.QtWidgets import QMessageBox
             tab_list = "\n".join([f"• {tab}" for tab in unsaved_tabs])
             choice = QMessageBox.question(
@@ -1278,11 +1268,30 @@ class MainWindow(QWidget):
             )
             if choice == QMessageBox.No:
                 return  # 取消关闭
-        
-        # 关闭其他Tab
-        for i in range(self.req_tabs.count() - 1, -1, -1):
+
+        # 先收集所有要关闭的Tab的tabText（去掉星号）
+        to_close = []
+        for i in range(self.req_tabs.count()):
             if i != keep_index:
+                tab_text = self.req_tabs.tabText(i)
+                if tab_text.endswith('*'):
+                    tab_text = tab_text[:-1]
+                to_close.append(tab_text)
+
+        # 关闭Tab时，倒序移除Tab，防止索引错乱
+        for i in range(self.req_tabs.count() - 1, -1, -1):
+            tab_text = self.req_tabs.tabText(i)
+            if tab_text.endswith('*'):
+                tab_text = tab_text[:-1]
+            if tab_text in to_close:
+                self.remove_response_for_tab(i)
                 self.req_tabs.removeTab(i)
+
+        # 关闭后，确保Response区和当前Tab同步
+        if self.req_tabs.count() > 0:
+            self.show_response_for_tab(self.req_tabs.currentIndex())
+        else:
+            self.check_and_show_welcome_page()
 
     def close_all_tabs(self):
         self.ensure_req_tabs()
@@ -1337,8 +1346,9 @@ class MainWindow(QWidget):
             
             # 立即隐藏当前Tab的遮罩层
             current_tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
-            if current_tab_index >= 0 and current_tab_index in self.response_widgets:
-                overlay = self.response_widgets[current_tab_index]['loading_overlay']
+            tab_key = self.get_tab_key(current_tab_index)
+            if current_tab_index >= 0 and tab_key in self.response_widgets:
+                overlay = self.response_widgets[tab_key]['loading_overlay']
                 overlay.setVisible(False)
             
             print("停止请求完成")
@@ -1371,8 +1381,9 @@ class MainWindow(QWidget):
             
             # 立即隐藏当前Tab的遮罩层
             current_tab_index = self.req_tabs.currentIndex() if hasattr(self, 'req_tabs') else -1
-            if current_tab_index >= 0 and current_tab_index in self.response_widgets:
-                overlay = self.response_widgets[current_tab_index]['loading_overlay']
+            tab_key = self.get_tab_key(current_tab_index)
+            if current_tab_index >= 0 and tab_key in self.response_widgets:
+                overlay = self.response_widgets[tab_key]['loading_overlay']
                 overlay.setVisible(False)
             print("安全停止请求完成")
             print("Send按钮已立即恢复")
@@ -2754,14 +2765,21 @@ Thank you for using PostSuperman!'''
             QMessageBox.warning(self, 'Error', f'Failed to export request: {e}') 
 
     def get_user_manual_content(self):
-        """获取用户手册内容"""
+        import sys
+        import os
         try:
-            manual_path = os.path.join(self._workspace_dir, 'docs', 'user_manual.md')
+            # 打包环境优先
+            if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+                manual_path = os.path.join(sys._MEIPASS, 'docs', 'user_manual.md')
+                if os.path.exists(manual_path):
+                    with open(manual_path, 'r', encoding='utf-8') as f:
+                        return f.read()
+            # 开发环境
+            manual_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'docs', 'user_manual.md')
             if os.path.exists(manual_path):
                 with open(manual_path, 'r', encoding='utf-8') as f:
                     return f.read()
-            else:
-                return "# PostSuperman 用户手册\n\n手册文件未找到。"
+            return "# PostSuperman 用户手册\n\n手册文件未找到。"
         except Exception as e:
             return f"# PostSuperman 用户手册\n\n读取手册文件时出错: {e}"
 
