@@ -823,22 +823,54 @@ class MainWindow(QWidget):
                     value = value_item.text().strip()
                     if key:
                         headers.append({'key': key, 'value': value})
+            # 检查form-data文件型，自动加Content-Type
+            auto_multipart = False
+            if editor.body_form_radio.isChecked():
+                for i in range(editor.form_table.rowCount() - 1):
+                    type_combo = editor.form_table.cellWidget(i, 2)
+                    if type_combo and type_combo.currentText() == 'File':
+                        auto_multipart = True
+                        break
+            if auto_multipart:
+                has_ct = any(h['key'].lower() == 'content-type' for h in headers)
+                if not has_ct:
+                    headers.append({'key': 'Content-Type', 'value': 'multipart/form-data'})
             # 处理Body
             data = None
             json_data = None
             files = None
+            file_handles = []  # 新增：用于记录打开的文件句柄
             if editor.body_none_radio.isChecked():
                 pass
             elif editor.body_form_radio.isChecked():
                 data = {}
+                files = {}
                 for i in range(editor.form_table.rowCount()):
                     key_item = editor.form_table.item(i, 1)
-                    value_item = editor.form_table.item(i, 2)
+                    type_combo = editor.form_table.cellWidget(i, 2)
+                    value_item = editor.form_table.item(i, 3)
                     if key_item and value_item:
                         key = key_item.text().strip()
                         value = value_item.text().strip()
+                        type_val = type_combo.currentText() if type_combo else 'Text'
                         if key:
-                            data[key] = value
+                            if type_val == 'File' and value:
+                                try:
+                                    f = open(value, 'rb')
+                                    files[key] = f
+                                    file_handles.append(f)
+                                except Exception as e:
+                                    QMessageBox.warning(self, 'File Error', f'Cannot open file: {value}\n{e}')
+                                    self._sending_request = False
+                                    if hasattr(editor, 'send_btn'):
+                                        editor.send_btn.setEnabled(True)
+                                    if hasattr(editor, 'stop_btn'):
+                                        editor.stop_btn.setEnabled(False)
+                                    return
+                            else:
+                                data[key] = value
+                if not files:
+                    files = None
             elif editor.body_url_radio.isChecked():
                 data = {}
                 for i in range(editor.url_table.rowCount()):
@@ -869,24 +901,21 @@ class MainWindow(QWidget):
                 overlay.raise_()
                 overlay.setVisible(True)
                 QApplication.processEvents()
-            
-            # 创建新的请求工作器
-            self._req_worker = RequestWorker(editor.method_combo.currentText(), editor.url_edit.text().strip(), params, headers, data, json_data, files)
-            
-            # 连接信号
+            # 仅在POST/PUT/PATCH等支持文件上传的方法时传递files
+            method = editor.method_combo.currentText().upper()
+            req_files = files if files and method in ['POST', 'PUT', 'PATCH'] else None
+            self._req_worker = RequestWorker(method, editor.url_edit.text().strip(), params, headers, data, json_data, req_files)
             self._req_worker.finished.connect(self.on_request_finished)
             self._req_worker.error.connect(self.on_request_error)
             self._req_worker.stopped.connect(self.on_request_stopped)
+            # 新增：将file_handles保存到self，便于请求完成后关闭
+            self._file_handles_to_close = file_handles
             print("信号连接成功")
-            
-            # 启动请求线程
             self._req_worker.start()
             self._current_editor = editor
             print("请求已发送，等待服务器响应...")
-                
         except Exception as e:
             print(f"send_request 出现异常: {e}")
-            # 确保按钮状态恢复
             self._sending_request = False
             if editor and hasattr(editor, 'send_btn'):
                 editor.send_btn.setEnabled(True)
@@ -895,9 +924,20 @@ class MainWindow(QWidget):
             if hasattr(self, 'resp_loading_overlay'):
                 self.resp_loading_overlay.setVisible(False)
 
+    def _close_file_handles(self):
+        """关闭所有待关闭的文件句柄"""
+        if hasattr(self, '_file_handles_to_close') and self._file_handles_to_close:
+            for f in self._file_handles_to_close:
+                try:
+                    f.close()
+                except Exception as e:
+                    print(f"关闭文件句柄出错: {e}")
+            self._file_handles_to_close = []
+
     def on_request_finished(self, result):
         """请求完成处理 - 最简单版本"""
         try:
+            self._close_file_handles()
             print("处理请求完成")
             self._sending_request = False
             
@@ -993,6 +1033,7 @@ class MainWindow(QWidget):
     def on_request_error(self, msg):
         """请求错误处理 - 最简单版本"""
         try:
+            self._close_file_handles()
             print(f"处理请求错误: {msg}")
             self._sending_request = False
             
@@ -1058,6 +1099,7 @@ class MainWindow(QWidget):
     def on_request_stopped(self):
         """请求停止处理 - 最简单版本"""
         try:
+            self._close_file_handles()
             print("处理请求停止")
             self._sending_request = False
             
@@ -1429,7 +1471,7 @@ class MainWindow(QWidget):
                         parent.addChild(item)
         
         add_items(None, data)
-        self.collection_tree.expandAll()
+        self.collection_tree.collapseAll()
 
     def open_collection(self):
         """从File菜单打开集合文件"""
@@ -2111,6 +2153,24 @@ Thank you for using PostSuperman!'''
                 return
             else:
                 # 这是Request节点，直接删除
+                # 先关闭右侧Tab
+                path = self.build_item_path(item)
+                tabs_to_close = []
+                has_unsaved = False
+                for i in range(self.req_tabs.count()-1, -1, -1):
+                    tab_text = self.req_tabs.tabText(i)
+                    if tab_text.rstrip('*') == path:
+                        tabs_to_close.append((i, tab_text))
+                        if tab_text.endswith('*'):
+                            has_unsaved = True
+                if has_unsaved:
+                    reply = QMessageBox.question(self, 'Unsaved Changes',
+                        'The request you are deleting has unsaved changes in an open tab.\nAre you sure you want to delete and close the tab?',
+                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                    if reply != QMessageBox.Yes:
+                        return
+                for idx, _ in tabs_to_close:
+                    self.req_tabs.removeTab(idx)
                 if item.parent() is None:
                     # 删除顶级集合
                     self.collection_tree.takeTopLevelItem(self.collection_tree.indexOfTopLevelItem(item))
@@ -2608,44 +2668,41 @@ Thank you for using PostSuperman!'''
         from PyQt5.QtCore import QTimer
         from PyQt5.QtGui import QClipboard
         import shlex
-        
         dlg = QDialog(self)
         dlg.setWindowTitle('cURL')
         layout = QVBoxLayout(dlg)
         label = QLabel('cURL command:')
         layout.addWidget(label)
-        
-        # 生成当前请求的curl命令
         current_editor = self.req_tabs.currentWidget()
         if not current_editor:
             return
-            
         method = current_editor.method_combo.currentText()
         url = current_editor.url_edit.text().strip()
-        
-        # 构建headers
         headers = []
+        # 检查form-data文件型，自动加Content-Type
+        auto_multipart = False
+        if current_editor.body_form_radio.isChecked():
+            for row in range(current_editor.form_table.rowCount() - 1):
+                type_combo = current_editor.form_table.cellWidget(row, 2)
+                if type_combo and type_combo.currentText() == 'File':
+                    auto_multipart = True
+                    break
         for row in range(current_editor.headers_table.rowCount()-1):
             key_item = current_editor.headers_table.item(row, 1)
             value_item = current_editor.headers_table.item(row, 2)
             if key_item and value_item and key_item.text().strip():
                 key = key_item.text().strip()
                 value = value_item.text().strip()
-                # 转义单引号
                 key = key.replace("'", "'\"'\"'")
                 value = value.replace("'", "'\"'\"'")
                 headers.append(f"-H '{key}: {value}'")
-        
-        # 构建cURL命令
+        if auto_multipart:
+            has_ct = any(h.startswith("-H 'Content-Type:") for h in headers)
+            if not has_ct:
+                headers.append("-H 'Content-Type: multipart/form-data'")
         curl_parts = ["curl"]
-        
-        # 添加方法
         curl_parts.append(f"-X {method}")
-        
-        # 添加headers
         curl_parts.extend(headers)
-        
-        # 添加URL参数
         params = []
         for row in range(current_editor.params_table.rowCount()-1):
             key_item = current_editor.params_table.item(row, 1)
@@ -2653,39 +2710,33 @@ Thank you for using PostSuperman!'''
             if key_item and value_item and key_item.text().strip():
                 key = key_item.text().strip()
                 value = value_item.text().strip()
-                # URL编码参数
                 from urllib.parse import quote
                 key = quote(key, safe='')
                 value = quote(value, safe='')
                 params.append(f"{key}={value}")
-        
         if params:
             url += "?" + "&".join(params)
-        
-        # 转义URL中的单引号
         url = url.replace("'", "'\"'\"'")
         curl_parts.append(f"'{url}'")
-        
-        # 添加body数据
         if current_editor.body_raw_radio.isChecked():
             body_data = current_editor.raw_text_edit.toPlainText().strip()
             if body_data:
-                # 转义body数据中的单引号
                 body_data = body_data.replace("'", "'\"'\"'")
                 curl_parts.append(f"-d '{body_data}'")
         elif current_editor.body_form_radio.isChecked():
-            form_data = []
             for row in range(current_editor.form_table.rowCount()-1):
                 key_item = current_editor.form_table.item(row, 1)
-                value_item = current_editor.form_table.item(row, 2)
+                type_combo = current_editor.form_table.cellWidget(row, 2)
+                value_item = current_editor.form_table.item(row, 3)
                 if key_item and value_item and key_item.text().strip():
-                    key = key_item.text().strip()
+                    key = key_item.text().strip().replace("'", "'\"'\"'")
+                    type_val = type_combo.currentText() if type_combo else 'Text'
                     value = value_item.text().strip()
-                    # 转义form数据中的单引号
-                    key = key.replace("'", "'\"'\"'")
-                    value = value.replace("'", "'\"'\"'")
-                    form_data.append(f"-F '{key}={value}'")
-            curl_parts.extend(form_data)
+                    if type_val == 'File' and value:
+                        curl_parts.append(f"-F '{key}=@{value}'")
+                    else:
+                        value = value.replace("'", "'\"'\"'")
+                        curl_parts.append(f"-F '{key}={value}'")
         elif current_editor.body_url_radio.isChecked():
             url_data = []
             for row in range(current_editor.url_table.rowCount()-1):
@@ -2694,34 +2745,25 @@ Thank you for using PostSuperman!'''
                 if key_item and value_item and key_item.text().strip():
                     key = key_item.text().strip()
                     value = value_item.text().strip()
-                    # 转义urlencoded数据中的单引号
                     key = key.replace("'", "'\"'\"'")
                     value = value.replace("'", "'\"'\"'")
                     url_data.append(f"-d '{key}={value}'")
             curl_parts.extend(url_data)
-        
         curl = " ".join(curl_parts)
-        
         curl_edit = QTextEdit()
         curl_edit.setReadOnly(True)
         curl_edit.setPlainText(curl)
         layout.addWidget(curl_edit)
-        
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         copy_btn = QPushButton('Copy')
         btn_row.addWidget(copy_btn)
         layout.addLayout(btn_row)
-        
         def do_copy():
             clipboard = QApplication.clipboard()
             clipboard.setText(curl)
-            
-            # 改变按钮文本为"Copied"并置灰
             copy_btn.setText('Copied')
             copy_btn.setEnabled(False)
-            
-            # 2秒后恢复按钮状态
             timer = QTimer(dlg)
             timer.setSingleShot(True)
             def restore_button():
@@ -2729,8 +2771,7 @@ Thank you for using PostSuperman!'''
                 copy_btn.setEnabled(True)
                 timer.deleteLater()
             timer.timeout.connect(restore_button)
-            timer.start(2000)  # 2000毫秒 = 2秒
-        
+            timer.start(2000)
         copy_btn.clicked.connect(do_copy)
         dlg.exec_()
 

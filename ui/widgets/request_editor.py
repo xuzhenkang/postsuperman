@@ -13,6 +13,7 @@ from .code_editor import CodeEditor
 from .json_highlighter import JsonHighlighter
 import json
 import os
+import uuid
 
 
 class RequestEditor(QWidget):
@@ -77,6 +78,7 @@ class RequestEditor(QWidget):
         
         # Params表格
         self.params_table = QTableWidget()
+        self.params_table.setObjectName('params_table')
         self.init_table(self.params_table)
         params_widget = QWidget()
         params_layout = QVBoxLayout(params_widget)
@@ -86,6 +88,7 @@ class RequestEditor(QWidget):
         
         # Headers表格
         self.headers_table = QTableWidget()
+        self.headers_table.setObjectName('headers_table')
         self.init_table(self.headers_table)
         headers_widget = QWidget()
         headers_layout = QVBoxLayout(headers_widget)
@@ -95,6 +98,7 @@ class RequestEditor(QWidget):
         
         # form-data表格
         self.form_table = QTableWidget()
+        self.form_table.setObjectName('form_table')
         self.init_table(self.form_table)
         form_widget = QWidget()
         form_layout = QVBoxLayout(form_widget)
@@ -231,46 +235,139 @@ class RequestEditor(QWidget):
         
     def init_table(self, table):
         """初始化表格"""
-        table.setColumnCount(5)
-        table.setHorizontalHeaderLabels(['', 'Key', 'Value', 'Description', 'Operation'])
-        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
-        table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        from PyQt5.QtWidgets import QComboBox
+        is_form = table.objectName() == 'form_table'
+        if is_form:
+            table.setColumnCount(6)
+            table.setHorizontalHeaderLabels(['', 'Key', 'Type', 'Value', 'Description', 'Operation'])
+            table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+            table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+            table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+            table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+            table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+            table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        else:
+            table.setColumnCount(5)
+            table.setHorizontalHeaderLabels(['', 'Key', 'Value', 'Description', 'Operation'])
+            table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+            table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+            table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+            table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+            table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         table.setRowCount(1)
         self.add_table_row(table, 0)
-        # 只连接一次cellChanged
         table.cellChanged.connect(lambda row, col, t=table: self.on_table_edit(t, row, col))
         
     def add_table_row(self, table, row):
         """添加表格行"""
-        table.setItem(row, 1, QTableWidgetItem(''))
-        table.setItem(row, 2, QTableWidgetItem(''))
-        table.setItem(row, 3, QTableWidgetItem(''))
-        table.setItem(row, 4, QTableWidgetItem(''))
-        self.add_row_widgets(table, row)
-        # 不要在这里连接cellChanged，避免递归
+        from PyQt5.QtWidgets import QComboBox, QPushButton, QFileDialog
+        is_form = table.objectName() == 'form_table'
+        if is_form:
+            table.setItem(row, 1, QTableWidgetItem(''))
+            type_combo = QComboBox()
+            type_combo.addItems(['Text', 'File'])
+            type_combo.setCurrentIndex(0)
+            table.setCellWidget(row, 2, type_combo)
+            table.setItem(row, 3, QTableWidgetItem(''))
+            table.setItem(row, 4, QTableWidgetItem(''))
+            table.setItem(row, 5, QTableWidgetItem(''))
+            self.add_row_widgets(table, row)
+            def on_type_changed(idx, r=row):
+                self.update_row_for_type(table, r)
+            type_combo.currentIndexChanged.connect(on_type_changed)
+            self.update_row_for_type(table, row)
+        else:
+            table.setItem(row, 1, QTableWidgetItem(''))
+            table.setItem(row, 2, QTableWidgetItem(''))
+            table.setItem(row, 3, QTableWidgetItem(''))
+            table.setItem(row, 4, QTableWidgetItem(''))
+            self.add_row_widgets(table, row)
         
     def add_row_widgets(self, table, row):
         """添加行控件"""
+        from PyQt5.QtWidgets import QPushButton, QFileDialog, QComboBox
+        is_form = table.objectName() == 'form_table'
         cb = QCheckBox()
         cb.setChecked(True)
         table.setCellWidget(row, 0, cb)
-        
         def remove():
             if table.rowCount() > 1:
                 table.removeRow(row)
-        
         remove_btn = QPushButton('Remove')
         remove_btn.setFixedWidth(60)
         remove_btn.clicked.connect(remove)
-        table.setCellWidget(row, 4, remove_btn)
-        
+        if is_form:
+            table.setCellWidget(row, 5, remove_btn)
+        else:
+            table.setCellWidget(row, 4, remove_btn)
+        # 文件选择按钮
+        if is_form:
+            type_combo = table.cellWidget(row, 2)
+            if type_combo and type_combo.currentText() == 'File':
+                file_btn = QPushButton('Choose File')
+                file_btn.setFixedWidth(80)
+                def choose_file():
+                    fname, _ = QFileDialog.getOpenFileName(self, 'Choose File', '', 'All Files (*)')
+                    if fname:
+                        table.setItem(row, 3, QTableWidgetItem(fname))
+                file_btn.clicked.connect(choose_file)
+                table.setCellWidget(row, 3, file_btn)
+            else:
+                table.removeCellWidget(row, 3)
+
+    def update_row_for_type(self, table, row):
+        """更新行以适应类型"""
+        from PyQt5.QtWidgets import QPushButton, QFileDialog
+        type_combo = table.cellWidget(row, 2)
+        if not type_combo:
+            return
+        if type_combo.currentText() == 'File':
+            table.setItem(row, 3, QTableWidgetItem(''))
+            table.item(row, 3).setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+            file_btn = QPushButton('Choose File')
+            file_btn.setFixedWidth(80)
+            def choose_file():
+                fname, _ = QFileDialog.getOpenFileName(self, 'Choose File', '', 'All Files (*)')
+                if fname:
+                    table.setItem(row, 3, QTableWidgetItem(fname))
+            file_btn.clicked.connect(choose_file)
+            table.setCellWidget(row, 3, file_btn)
+        else:
+            table.removeCellWidget(row, 3)
+            item = table.item(row, 3)
+            if not item:
+                table.setItem(row, 3, QTableWidgetItem(''))
+            table.item(row, 3).setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemIsEditable)
+
     def on_table_edit(self, table, row, col):
         """表格编辑事件"""
+        # 自动添加Content-Type: multipart/form-data; boundary=xxx 到Headers表格
+        if table.objectName() == 'form_table':
+            auto_multipart = False
+            for r in range(table.rowCount() - 1):
+                type_combo = table.cellWidget(r, 2)
+                if type_combo and type_combo.currentText() == 'File':
+                    auto_multipart = True
+                    break
+            headers_table = getattr(self, 'headers_table', None)
+            if auto_multipart and headers_table:
+                # 检查是否已存在Content-Type
+                exists = False
+                for i in range(headers_table.rowCount() - 1):
+                    key_item = headers_table.item(i, 1)
+                    if key_item and key_item.text().strip().lower() == 'content-type':
+                        exists = True
+                        break
+                if not exists:
+                    # 生成boundary
+                    boundary = uuid.uuid4().hex
+                    row_idx = headers_table.rowCount() - 1
+                    headers_table.setItem(row_idx, 1, QTableWidgetItem('Content-Type'))
+                    headers_table.setItem(row_idx, 2, QTableWidgetItem(f'multipart/form-data; boundary={boundary}'))
+                    headers_table.setItem(row_idx, 3, QTableWidgetItem(''))
+                    headers_table.setItem(row_idx, 4, QTableWidgetItem(''))
+                    self.add_row_widgets(headers_table, row_idx)
         if row == table.rowCount() - 1 and col in [1, 2, 3]:
-            # 在最后一行编辑时，添加新行
             table.blockSignals(True)
             table.insertRow(table.rowCount())
             self.add_table_row(table, table.rowCount() - 1)
@@ -404,14 +501,26 @@ class RequestEditor(QWidget):
         """序列化请求数据"""
         def get_table_data(table):
             data = []
+            is_form = table.objectName() == 'form_table'
             for row in range(table.rowCount() - 1):
                 cb = table.cellWidget(row, 0)
                 if cb and cb.isChecked():
                     key_item = table.item(row, 1)
-                    value_item = table.item(row, 2)
-                    if key_item and key_item.text().strip():
+                    if is_form:
+                        type_combo = table.cellWidget(row, 2)
+                        value_item = table.item(row, 3)
+                        type_val = type_combo.currentText() if type_combo else 'Text'
+                        file_path = value_item.text() if value_item else ''
                         data.append({
-                            'key': key_item.text().strip(),
+                            'key': key_item.text().strip() if key_item else '',
+                            'value': file_path if type_val == 'File' else (value_item.text().strip() if value_item else ''),
+                            'type': type_val,
+                            'file_path': file_path if type_val == 'File' else ''
+                        })
+                    else:
+                        value_item = table.item(row, 2)
+                        data.append({
+                            'key': key_item.text().strip() if key_item else '',
                             'value': value_item.text().strip() if value_item else ''
                         })
             return data

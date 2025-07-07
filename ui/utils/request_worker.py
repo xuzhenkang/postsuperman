@@ -6,6 +6,7 @@ import requests
 import json
 import time
 import threading
+from requests_toolbelt.multipart.encoder import MultipartEncoder
 
 
 class RequestWorker(QObject):
@@ -53,39 +54,50 @@ class RequestWorker(QObject):
                 print("RequestWorker: 请求被停止")
                 self.stopped.emit()
                 return
-                
             # 构建请求参数
             request_kwargs = {
                 'url': self.url,
                 'method': self.method,
                 'timeout': None  # 无超时限制，一直等待服务器响应
             }
-            
             # 添加参数
             if self.params:
                 request_kwargs['params'] = {p['key']: p['value'] for p in self.params if p.get('key')}
-                
             # 添加头部
-            if self.headers:
-                request_kwargs['headers'] = {h['key']: h['value'] for h in self.headers if h.get('key')}
-                
-            # 添加数据
-            if self.data:
-                request_kwargs['data'] = self.data
-            elif self.json_data:
-                request_kwargs['json'] = self.json_data
-            elif self.files:
-                request_kwargs['files'] = self.files
-                
+            headers_dict = {h['key']: h['value'] for h in self.headers if h.get('key')}
+            # 检查是否multipart/form-data上传
+            is_multipart = False
+            if self.files:
+                ct = headers_dict.get('Content-Type', '')
+                if ct.startswith('multipart/form-data'):
+                    is_multipart = True
+            if is_multipart:
+                # 用requests原生API上传文件，不用MultipartEncoder
+                # files参数格式：{'file': fileobj, ...}
+                # data参数为普通字段
+                fields = self.files.copy() if isinstance(self.files, dict) else {}
+                data = self.data if self.data else None
+                # 移除Content-Type，让requests自动生成
+                headers_dict = {k: v for k, v in headers_dict.items() if k.lower() != 'content-type'}
+                request_kwargs['headers'] = headers_dict
+                request_kwargs['files'] = fields
+                if data:
+                    request_kwargs['data'] = data
+            else:
+                request_kwargs['headers'] = headers_dict if headers_dict else None
+                # 添加数据
+                if self.data:
+                    request_kwargs['data'] = self.data
+                elif self.json_data:
+                    request_kwargs['json'] = self.json_data
+                elif self.files:
+                    request_kwargs['files'] = self.files
             # 发送请求前再次检查停止标志
             if self._stop_flag:
                 print("RequestWorker: 请求发送前被停止")
                 self.stopped.emit()
                 return
-                
             print(f"RequestWorker: 发送请求 {self.method} {self.url}")
-            
-            # 使用requests发送请求
             response = requests.request(**request_kwargs)
             
             # 请求完成后立即检查停止标志
@@ -108,17 +120,12 @@ class RequestWorker(QObject):
             
             self.finished.emit(result)
             
-        except requests.exceptions.RequestException as e:
-            if not self._stop_flag:
-                print(f"RequestWorker: 请求异常 {e}")
-                self.error.emit(str(e))
-            else:
-                print("RequestWorker: 请求异常但已停止")
-                self.stopped.emit()
         except Exception as e:
+            import traceback
+            print(f"RequestWorker: 意外错误 {e}")
+            traceback.print_exc()
             if not self._stop_flag:
-                print(f"RequestWorker: 意外错误 {e}")
-                self.error.emit(f"Unexpected error: {str(e)}")
+                self.error.emit(f"Unexpected error: {str(e)}\n{traceback.format_exc()}")
             else:
                 print("RequestWorker: 意外错误但已停止")
                 self.stopped.emit()
