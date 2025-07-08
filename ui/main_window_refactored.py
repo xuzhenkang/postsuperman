@@ -671,13 +671,9 @@ class MainWindow(QWidget):
         self.log_info(f'Save new request "{request_name}" to collection: {parent_collection.text(0)}')
 
     def on_collection_item_clicked(self, item, column):
-        """集合项单击事件"""
-        # 判断是否为Request节点
+        """集合项单击事件（用tabBar().setTabData做唯一性判断+调试输出）"""
         if item.childCount() == 0 and item.parent() is not None and item.icon(0).cacheKey() == self.file_icon.cacheKey():
-            # 这是Request节点，需要创建Tab
             self.ensure_req_tabs()
-            
-            # 生成包含Collection路径的唯一标识
             def get_request_path(item):
                 path_parts = []
                 current = item
@@ -685,17 +681,16 @@ class MainWindow(QWidget):
                     path_parts.insert(0, current.text(0))
                     current = current.parent()
                 return '/'.join(path_parts)
-            
             request_path = get_request_path(item)
-            request_name = item.text(0)
-            
-            # 检查是否已存在相同路径的Tab
+            print(f"DEBUG: request_path={request_path!r}")
             for i in range(self.req_tabs.count()):
-                if self.req_tabs.tabText(i) == request_path:
+                print(f"Tab {i}: tabText={self.req_tabs.tabText(i)!r}, tabData={self.req_tabs.tabBar().tabData(i)!r}")
+                if self.req_tabs.tabBar().tabData(i) == request_path:
+                    print(f"DEBUG: Found existing tab for {request_path!r} at index {i}")
                     self.req_tabs.setCurrentIndex(i)
                     return
             req_data = self.get_request_data_from_tree(item)
-            req_editor = RequestEditor(self, req_name=request_name)
+            req_editor = RequestEditor(self, req_name=item.text(0))
             if req_data:
                 req_editor.method_combo.setCurrentText(req_data.get('method', 'GET'))
                 req_editor.url_edit.setText(req_data.get('url', ''))
@@ -742,15 +737,14 @@ class MainWindow(QWidget):
                     req_editor.raw_type_combo.setCurrentText(req_data.get('raw_type', 'JSON'))
                 else:
                     req_editor.body_none_radio.setChecked(True)
-            self.req_tabs.addTab(req_editor, request_path)
-            tab_index = self.req_tabs.count() - 1  # 获取新添加的Tab索引
+            tab_index = self.req_tabs.addTab(req_editor, request_path)
+            self.req_tabs.tabBar().setTabData(tab_index, request_path)
+            print(f"DEBUG: Added new tab for {request_path!r} at index {tab_index}")
             self.req_tabs.setCurrentWidget(req_editor)
-            
-            # 为新Tab创建Response区域
             self.show_response_for_tab(tab_index)
         else:
-            # 这是Collection节点，不创建Tab，只展开/折叠
             pass
+
 
     def get_request_data_from_tree(self, item):
         """从collections.json结构递归查找对应request数据"""
