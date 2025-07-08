@@ -3,7 +3,10 @@
 
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QPixmap, QColor
+from PyQt5.QtWidgets import QGraphicsDropShadowEffect
+from PyQt5.QtWidgets import QScrollArea
+from PyQt5.QtWidgets import QApplication
 
 
 class AboutDialog(QDialog):
@@ -14,98 +17,166 @@ class AboutDialog(QDialog):
         self.setWindowTitle('About PostSuperman')
         self.setFixedSize(500, 400)
         self.setModal(True)
-        
-        layout = QVBoxLayout(self)
-        layout.setSpacing(20)
-        
-        # 标题
-        title_label = QLabel('PostSuperman')
-        title_label.setStyleSheet("""
+        self.setStyleSheet("""
+            QDialog {
+                background: #f7f9fa;
+                border-radius: 12px;
+            }
+        """)
+        vbox = QVBoxLayout(self)
+        vbox.setSpacing(12)
+        # 艺术字应用名称（顶部）
+        art_label = QLabel('postsuperman')
+        art_label.setAlignment(Qt.AlignCenter)
+        art_label.setStyleSheet('''
             QLabel {
-                font-size: 24px;
+                font-size: 28px;
+                font-family: "Arial Black", "微软雅黑", Arial, sans-serif;
                 font-weight: bold;
-                color: #2c3e50;
+                letter-spacing: 1px;
+                color: #1976d2;
             }
-        """)
-        title_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title_label)
-        
-        # 版本信息
-        version_label = QLabel('Version 1.0.0')
-        version_label.setStyleSheet("""
-            QLabel {
-                font-size: 14px;
-                color: #7f8c8d;
-            }
-        """)
-        version_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(version_label)
-        
-        # 描述
-        desc_label = QLabel(
-            'A powerful API testing tool built with Python and PyQt5.\n\n'
-            'Features:\n'
-            '• Multi-tab request management\n'
-            '• cURL import support\n'
-            '• Collection organization\n'
-            '• Response highlighting\n'
-            '• Request history\n'
-            '• Environment variables'
+        ''')
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(8)
+        shadow.setColor(QColor(0, 0, 0, 60))
+        shadow.setOffset(1, 2)
+        art_label.setGraphicsEffect(shadow)
+        vbox.addWidget(art_label)
+        # Logo/Icon
+        icon_label = QLabel()
+        icon_pix = QPixmap('ui/app.ico')
+        if not icon_pix.isNull():
+            icon_label.setPixmap(icon_pix.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            icon_label.setAlignment(Qt.AlignCenter)
+            vbox.addWidget(icon_label)
+        # 分割线
+        line1 = QLabel()
+        line1.setFixedHeight(2)
+        line1.setStyleSheet('background: #e0e0e0; margin: 0 20px;')
+        vbox.addWidget(line1)
+        # 描述区（可滚动）
+        desc_html = (
+            '<div style="text-align:center;">'
+            '<span style="font-size:13px; color:#34495e;">A powerful API testing tool built with Python and PyQt5.</span><br><br>'
+            '<b>Features:</b><br>'
+            '<ul style="margin:0; padding-left:20px; text-align:left; display:inline-block;">'
+            '<li>Multi-tab request management</li>'
+            '<li>cURL import support</li>'
+            '<li>Collection organization</li>'
+            '<li>Response highlighting</li>'
+            '<li>Request history</li>'
+            '<li>Environment variables</li>'
+            '</ul>'
+            '<br>Powered by Python & PyQt5<br>'
+            'Developed by xuzhenkang@hotmail.com<br>'
+            '<a href="https://github.com/xuzhenkang/postsuperman">https://github.com/xuzhenkang/postsuperman</a><br>'
+            'Version: 1.0.0'
+            '</div>'
         )
-        desc_label.setStyleSheet("""
-            QLabel {
-                font-size: 12px;
-                color: #2c3e50;
-                line-height: 1.5;
-            }
-        """)
-        desc_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(desc_label)
-        
+        desc_label = QLabel(desc_html)
+        desc_label.setWordWrap(True)
+        desc_label.setTextFormat(Qt.RichText)
+        desc_label.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        desc_label.setStyleSheet("font-size: 13px; color: #2c3e50; line-height: 1.7;")
+        scroll = QScrollArea()
+        scroll.setWidget(desc_label)
+        scroll.setWidgetResizable(True)
+        scroll.setFixedHeight(170)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        vbox.addWidget(scroll)
+        # 再加一条分割线
+        line2 = QLabel()
+        line2.setFixedHeight(2)
+        line2.setStyleSheet('background: #e0e0e0; margin: 0 20px;')
+        vbox.addWidget(line2)
         # 按钮区域
         button_layout = QHBoxLayout()
         button_layout.addStretch()
-        
-        # 复制按钮
-        copy_btn = QPushButton('Copy Info')
-        copy_btn.clicked.connect(self.copy_info)
-        button_layout.addWidget(copy_btn)
-        
-        # 关闭按钮
+        self.copy_btn = QPushButton('Copy Info')
+        self.copy_btn.setObjectName('copyInfoBtn')
+        self.copy_btn.setStyleSheet('''
+            QPushButton#copyInfoBtn {
+                min-width: 90px;
+                padding: 6px 18px;
+                border-radius: 6px;
+                background: #1976d2;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton#copyInfoBtn:pressed {
+                background: #115293;
+            }
+            QPushButton#copyInfoBtn:disabled {
+                background: #b0bec5;
+                color: #ececec;
+            }
+        ''')
+        self.copy_btn.clicked.connect(self.copy_info)
+        button_layout.addWidget(self.copy_btn)
         close_btn = QPushButton('Close')
+        close_btn.setStyleSheet('''
+            QPushButton {
+                min-width: 90px;
+                padding: 6px 18px;
+                border-radius: 6px;
+                background: #1976d2;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:pressed {
+                background: #115293;
+            }
+        ''')
         close_btn.clicked.connect(self.accept)
         button_layout.addWidget(close_btn)
-        
-        layout.addLayout(button_layout)
+        button_layout.addStretch()
+        vbox.addLayout(button_layout)
         
     def copy_info(self):
         """复制信息到剪贴板"""
-        info = """PostSuperman v1.0.0
-A powerful API testing tool built with Python and PyQt5.
+        print("copy_info called")
+        try:
+            info = (
+                "PostSuperman v1.0.0\n"
+                "A powerful API testing tool built with Python and PyQt5.\n\n"
+                "Features:\n"
+                "• Multi-tab request management\n"
+                "• cURL import support\n"
+                "• Collection organization\n"
+                "• Response highlighting\n"
+                "• Request history\n"
+                "• Environment variables\n"
+                "\nPowered by Python & PyQt5\n"
+                "Developed by xuzhenkang@hotmail.com\n"
+                "https://github.com/xuzhenkang/postsuperman\n"
+                "Version: 1.0.0"
+            )
+            clipboard = QApplication.clipboard()
+            clipboard.setText(info)
+            self.copy_btn.setText('Copied!')
+            self.copy_btn.setEnabled(False)
+            self.copy_btn.setStyleSheet(self.copy_btn.styleSheet())
+            from PyQt5.QtCore import QTimer
+            if hasattr(self, '_copy_timer') and self._copy_timer is not None:
+                self._copy_timer.stop()
+                self._copy_timer.deleteLater()
+            self._copy_timer = QTimer(self)
+            self._copy_timer.setSingleShot(True)
+            self._copy_timer.timeout.connect(self.restore_copy_btn)
+            self._copy_timer.start(2000)
+        except Exception as e:
+            print("copy_info error:", e)
 
-Features:
-• Multi-tab request management
-• cURL import support
-• Collection organization
-• Response highlighting
-• Request history
-• Environment variables"""
-        
-        clipboard = self.parent().window().clipboard()
-        clipboard.setText(info)
-        
-        # 临时改变按钮文本
-        sender = self.sender()
-        original_text = sender.text()
-        sender.setText('Copied!')
-        sender.setEnabled(False)
-        
-        # 2秒后恢复
-        from PyQt5.QtCore import QTimer
-        timer = QTimer()
-        timer.singleShot(2000, lambda: self.restore_button(sender, original_text))
-        
-    def restore_button(self, button, text):
-        """恢复按钮状态"""
-        button.setText(text)
-        button.setEnabled(True) 
+    def restore_copy_btn(self):
+        """恢复复制按钮"""
+        try:
+            print("restore_copy_btn called")
+            self.copy_btn.setText('Copy Info')
+            self.copy_btn.setEnabled(True)
+            self.copy_btn.setStyleSheet(self.copy_btn.styleSheet())
+            if hasattr(self, '_copy_timer') and self._copy_timer is not None:
+                self._copy_timer.deleteLater()
+                self._copy_timer = None 
+        except Exception as e:
+            print("restore_copy_btn error:", e) 

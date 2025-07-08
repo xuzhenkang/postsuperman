@@ -42,6 +42,7 @@ from .models.collection_manager import CollectionManager
 from PyQt5.QtWidgets import QTabWidget
 from ui.collection_tree_widget import CollectionTreeWidget
 from ui.dialogs.settings_dialog import SettingsDialog
+from ui.utils.settings_manager import load_settings
 
 
 class MainWindow(QWidget):
@@ -68,6 +69,10 @@ class MainWindow(QWidget):
         # 设置应用图标
         QApplication.setWindowIcon(self._app_icon)
         self.setWindowIcon(self._app_icon)
+        
+        self._settings = load_settings()
+        self._collections_path = self._settings.get('collections_path')
+        self._log_path = self._settings.get('log_path')
         
         self.init_logging()
         self.init_ui()
@@ -331,25 +336,22 @@ class MainWindow(QWidget):
         
     def init_logging(self):
         """初始化日志系统"""
-        log_file = os.path.join(self._workspace_dir, 'postsuperman.log')
-        
-        log_format = '%(asctime)s - %(levelname)s - %(message)s'
-        date_format = '%Y-%m-%d %H:%M:%S'
-        
-        file_handler = logging.FileHandler(log_file, encoding='utf-8')
-        file_handler.setLevel(logging.INFO)
-        
-        formatter = logging.Formatter(log_format, date_format)
-        file_handler.setFormatter(formatter)
-        
+        import logging
+        log_path = getattr(self, '_log_path', None) or 'user-data/postsuperman.log'
+        log_dir = os.path.dirname(log_path)
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
+        logging.basicConfig(
+            filename=log_path,
+            filemode='a',
+            format='%(asctime)s %(levelname)s %(message)s',
+            level=logging.INFO
+        )
         self.logger = logging.getLogger('postsuperman')
-        self.logger.setLevel(logging.INFO)
-        self.logger.addHandler(file_handler)
-        
         self.logger.info('=' * 50)
         self.logger.info('postsuperman 应用启动')
         self.logger.info(f'工作目录: {self._workspace_dir}')
-        self.logger.info(f'日志文件: {log_file}')
+        self.logger.info(f'日志文件: {log_path}')
         self.logger.info('=' * 50)
         
     def log_info(self, message):
@@ -776,7 +778,6 @@ class MainWindow(QWidget):
 
     def get_request_data_from_tree(self, item):
         """从collections.json结构递归查找对应request数据"""
-        # 从collections.json结构递归查找对应request数据
         def find_req(nodes, name):
             for node in nodes:
                 if node.get('type') == 'request' and node.get('name') == name:
@@ -788,8 +789,7 @@ class MainWindow(QWidget):
             return None
         
         # 加载collections.json数据
-        user_data_dir = os.path.join(self._workspace_dir, 'user-data')
-        path = os.path.join(user_data_dir, 'collections.json')
+        path = self.get_collections_path()
         if not os.path.exists(path):
             return None
         try:
@@ -1693,7 +1693,10 @@ class MainWindow(QWidget):
             if not os.path.exists(user_data_dir):
                 os.makedirs(user_data_dir)
             
-            path = os.path.join(user_data_dir, 'collections.json')
+            path = self.get_collections_path()
+            coll_dir = os.path.dirname(path)
+            if not os.path.exists(coll_dir):
+                os.makedirs(coll_dir, exist_ok=True)
             
             # 记录保存前的数据统计
             total_collections = 0
@@ -1748,85 +1751,9 @@ class MainWindow(QWidget):
 
     # 菜单事件处理
     def show_about(self):
-        """显示关于对话框"""
-        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel
-        from PyQt5.QtCore import QTimer
-        from PyQt5.QtGui import QPixmap
-        
-        dialog = QDialog(self)
-        dialog.setWindowTitle('About')
-        dialog.setMinimumWidth(450)
-        layout = QVBoxLayout(dialog)
-        
-        # 图标
-        icon_label = QLabel()
-        icon_path = self.get_icon_path()
-        if icon_path and os.path.exists(icon_path):
-            pixmap = QPixmap(icon_path)
-            icon_label.setPixmap(pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        else:
-            icon_label.setText('🦸')
-            icon_label.setStyleSheet('font-size: 48px;')
-        icon_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(icon_label)
-        
-        # 应用信息
-        about_text = '''postsuperman
-
-A Postman-like API debugging tool.
-
-Features:
-• Multi-tab request management
-• Parameter, header, and body editing
-• cURL import and export
-• Response highlighting and formatting
-• Collection management
-• Environment support
-• Request history
-
-Powered by Python & PyQt5
-
-Developed by xuzhenkang@hotmail.com
-
-https://github.com/xuzhenkang/postsuperman
-
-Version: 1.0.0'''
-        
-        about_edit = QTextEdit()
-        about_edit.setReadOnly(True)
-        about_edit.setPlainText(about_text)
-        about_edit.setMaximumHeight(300)
-        about_edit.setStyleSheet('text-align: left;')
-        layout.addWidget(about_edit)
-        
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        copy_btn = QPushButton('Copy Info')
-        copy_btn.setFixedWidth(120)
-        btn_row.addWidget(copy_btn)
-        layout.addLayout(btn_row)
-        
-        def do_copy():
-            from PyQt5.QtWidgets import QApplication
-            clipboard = QApplication.clipboard()
-            clipboard.setText(about_text)
-            
-            # 改变按钮文本为"Copied"
-            copy_btn.setText('Copied')
-            copy_btn.setEnabled(False)
-            
-            # 2秒后恢复按钮状态
-            timer = QTimer(dialog)
-            timer.setSingleShot(True)
-            def restore_button():
-                copy_btn.setText('Copy Info')
-                copy_btn.setEnabled(True)
-                timer.deleteLater()
-            timer.timeout.connect(restore_button)
-            timer.start(2000)  # 2000毫秒 = 2秒
-        
-        copy_btn.clicked.connect(do_copy)
-        dialog.exec_()
+        from ui.dialogs.about_dialog import AboutDialog
+        dlg = AboutDialog(self)
+        dlg.exec_()
 
     def update_tab_title(self, old_name, new_name):
         """更新标签页标题"""
@@ -2958,3 +2885,6 @@ Thank you for using PostSuperman!'''
     def show_preferences_dialog(self):
         dlg = SettingsDialog(self)
         dlg.exec_()
+
+    def get_collections_path(self):
+        return getattr(self, '_collections_path', None) or 'user-data/collections.json'
