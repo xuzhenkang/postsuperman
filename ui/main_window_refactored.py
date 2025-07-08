@@ -41,6 +41,7 @@ from .dialogs.about_dialog import AboutDialog
 from .models.collection_manager import CollectionManager
 from PyQt5.QtWidgets import QTabWidget
 from ui.collection_tree_widget import CollectionTreeWidget
+from ui.dialogs.settings_dialog import SettingsDialog
 
 
 class MainWindow(QWidget):
@@ -114,6 +115,7 @@ class MainWindow(QWidget):
         open_collection_action = QAction('Open Collection', self)
         save_collection_as_action = QAction('Save Collection As', self)
         save_all_action = QAction('Save All', self)
+        preferences_action = QAction('Preferences/Settings', self)  # 新增
         exit_action = QAction('Exit', self)
         
         file_menu.addAction(new_request_action)
@@ -123,6 +125,8 @@ class MainWindow(QWidget):
         file_menu.addSeparator()
         file_menu.addAction(save_collection_as_action)
         file_menu.addAction(save_all_action)
+        file_menu.addSeparator()
+        file_menu.addAction(preferences_action)  # 新增
         file_menu.addSeparator()
         file_menu.addAction(exit_action)
         
@@ -142,6 +146,7 @@ class MainWindow(QWidget):
         open_collection_action.triggered.connect(self.open_collection)
         save_collection_as_action.triggered.connect(self.save_collection_as)
         save_all_action.triggered.connect(self.save_all)
+        preferences_action.triggered.connect(self.show_preferences_dialog)
         exit_action.triggered.connect(self.close)
         about_action.triggered.connect(self.show_about)
         doc_action.triggered.connect(self.show_doc)
@@ -711,6 +716,9 @@ class MainWindow(QWidget):
                     req_editor.headers_table.setItem(i, 1, QTableWidgetItem(h.get('key', '')))
                     req_editor.headers_table.setItem(i, 2, QTableWidgetItem(h.get('value', '')))
                 req_editor.refresh_table_widgets(req_editor.headers_table)
+                # 只保留一个空白行
+                while req_editor.headers_table.rowCount() > len(req_data.get('headers', [])) + 1:
+                    req_editor.headers_table.removeRow(req_editor.headers_table.rowCount()-2)
                 # Body
                 body_type = req_data.get('body_type', 'none')
                 if body_type == 'form-data':
@@ -721,7 +729,25 @@ class MainWindow(QWidget):
                             req_editor.form_table.insertRow(req_editor.form_table.rowCount())
                             req_editor.add_table_row(req_editor.form_table, req_editor.form_table.rowCount()-1)
                         req_editor.form_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
-                        req_editor.form_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                        # 设置Type列QComboBox
+                        type_combo = req_editor.form_table.cellWidget(i, 2)
+                        type_val = item.get('type', 'Text')
+                        if type_combo:
+                            idx = type_combo.findText(type_val)
+                            if idx >= 0:
+                                type_combo.setCurrentIndex(idx)
+                                req_editor.update_row_for_type(req_editor.form_table, i)
+                        # 设置Value列
+                        if type_val == 'File':
+                            req_editor.form_table.setItem(i, 3, QTableWidgetItem(item.get('value', '')))
+                            req_editor.update_row_for_type(req_editor.form_table, i)
+                        else:
+                            req_editor.form_table.setItem(i, 3, QTableWidgetItem(item.get('value', '')))
+                        # 设置Description列
+                        req_editor.form_table.setItem(i, 4, QTableWidgetItem(item.get('description', '')) if 'description' in item else QTableWidgetItem(''))
+                    # 只保留一个空白行
+                    while req_editor.form_table.rowCount() > len(req_data.get('body', [])) + 1:
+                        req_editor.form_table.removeRow(req_editor.form_table.rowCount()-2)
                 elif body_type == 'x-www-form-urlencoded':
                     req_editor.body_url_radio.setChecked(True)
                     req_editor.url_table.setRowCount(1)
@@ -731,6 +757,8 @@ class MainWindow(QWidget):
                             req_editor.add_table_row(req_editor.url_table, req_editor.url_table.rowCount()-1)
                         req_editor.url_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
                         req_editor.url_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+                    while req_editor.url_table.rowCount() > len(req_data.get('body', [])) + 1:
+                        req_editor.url_table.removeRow(req_editor.url_table.rowCount()-2)
                 elif body_type == 'raw':
                     req_editor.body_raw_radio.setChecked(True)
                     req_editor.raw_text_edit.setPlainText(req_data.get('body', ''))
@@ -2926,3 +2954,7 @@ Thank you for using PostSuperman!'''
                 fix_type(item.child(i))
         for i in range(self.collection_tree.topLevelItemCount()):
             fix_type(self.collection_tree.topLevelItem(i))
+
+    def show_preferences_dialog(self):
+        dlg = SettingsDialog(self)
+        dlg.exec_()

@@ -242,7 +242,7 @@ class RequestEditor(QWidget):
             table.setHorizontalHeaderLabels(['', 'Key', 'Type', 'Value', 'Description', 'Operation'])
             table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
             table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-            table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+            table.setColumnWidth(2, 100)  # Type列宽度固定100
             table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
             table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
             table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
