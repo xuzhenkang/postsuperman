@@ -7,6 +7,8 @@ from PyQt5.QtGui import QPixmap, QColor
 from PyQt5.QtWidgets import QGraphicsDropShadowEffect
 from PyQt5.QtWidgets import QScrollArea
 from PyQt5.QtWidgets import QApplication
+import sys
+import os
 
 
 class AboutDialog(QDialog):
@@ -45,7 +47,12 @@ class AboutDialog(QDialog):
         vbox.addWidget(art_label)
         # Logo/Icon
         icon_label = QLabel()
-        icon_pix = QPixmap('ui/app.ico')
+        # 兼容 PyInstaller 路径
+        if hasattr(sys, '_MEIPASS'):
+            icon_path = os.path.join(sys._MEIPASS, 'app.ico')
+        else:
+            icon_path = os.path.join('ui', 'app.ico')
+        icon_pix = QPixmap(icon_path)
         if not icon_pix.isNull():
             icon_label.setPixmap(icon_pix.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation))
             icon_label.setAlignment(Qt.AlignCenter)

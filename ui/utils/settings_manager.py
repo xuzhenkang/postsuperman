@@ -14,7 +14,8 @@ def get_default_data_dir():
 DATA_DIR = get_default_data_dir()
 DEFAULT_SETTINGS = {
     "collections_path": os.path.join(DATA_DIR, "collections.json"),
-    "log_path": os.path.join(DATA_DIR, "postsuperman.log")
+    "log_path": os.path.join(DATA_DIR, "postsuperman.log"),
+    "editor_tab_size": 4,  # 新增，编辑器Tab空格数
 }
 SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
 

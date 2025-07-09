@@ -130,6 +130,24 @@ class EditorFontPanel(QWidget):
         layout.addLayout(hlayout)
         layout.addStretch()
 
+class EditorTabPanel(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel('Tab 设置:'))
+        self.tabsize_spin = QSpinBox()
+        self.tabsize_spin.setRange(2, 8)
+        self.tabsize_spin.setValue(load_settings().get('editor_tab_size', 4))
+        hlayout = QHBoxLayout()
+        hlayout.addWidget(QLabel('Tab 替换为空格数:'))
+        hlayout.addWidget(self.tabsize_spin)
+        layout.addLayout(hlayout)
+        layout.addStretch()
+    def get_settings(self):
+        return {'editor_tab_size': self.tabsize_spin.value()}
+    def load_current_settings(self):
+        self.tabsize_spin.setValue(load_settings().get('editor_tab_size', 4))
+
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -149,6 +167,7 @@ class SettingsDialog(QDialog):
         font = QTreeWidgetItem(appearance, ['font'])
         editor = QTreeWidgetItem(self.tree, ['Editor'])
         editor_font = QTreeWidgetItem(editor, ['font'])
+        editor_tab = QTreeWidgetItem(editor, ['tab'])  # 新增Tab设置
         self.tree.expandAll()
         self.tree.setMaximumWidth(180)
         # 右侧stack
@@ -160,6 +179,7 @@ class SettingsDialog(QDialog):
             'theme': ThemePanel(),
             'font_appearance': AppearanceFontPanel(),
             'font_editor': EditorFontPanel(),
+            'tab_editor': EditorTabPanel(),  # 新增Tab设置
         }
         self.stack.addWidget(self.panels['data directory'])      # 0
         self.stack.addWidget(self.panels['shortcut key'])        # 1
@@ -167,6 +187,7 @@ class SettingsDialog(QDialog):
         self.stack.addWidget(self.panels['theme'])               # 3
         self.stack.addWidget(self.panels['font_appearance'])     # 4
         self.stack.addWidget(self.panels['font_editor'])         # 5
+        self.stack.addWidget(self.panels['tab_editor'])          # 6 新增
         main_layout.addWidget(self.tree)
         main_layout.addWidget(self.stack, 1)
         # 选项树切换逻辑
@@ -192,6 +213,7 @@ class SettingsDialog(QDialog):
         self.setLayout(vbox)
         # 每次弹出都刷新data directory面板内容
         self.panels['data directory'].load_current_settings()
+        self.panels['tab_editor'].load_current_settings()  # 新增
     def on_tree_changed(self, current, previous):
         if not current: return
         text = current.text(0)
@@ -202,6 +224,8 @@ class SettingsDialog(QDialog):
                 self.stack.setCurrentWidget(self.panels['font_appearance'])
             elif ptext == 'Editor' and text == 'font':
                 self.stack.setCurrentWidget(self.panels['font_editor'])
+            elif ptext == 'Editor' and text == 'tab':
+                self.stack.setCurrentWidget(self.panels['tab_editor'])  # 新增
             else:
                 self.stack.setCurrentWidget(self.panels[text])
         else:
@@ -212,7 +236,6 @@ class SettingsDialog(QDialog):
                 self.stack.setCurrentWidget(self.panels['theme'])
             elif text == 'Editor':
                 self.stack.setCurrentWidget(self.panels['font_editor'])
-
     def on_apply(self):
         data_panel = self.panels['data directory']
         valid, msg = data_panel.validate_paths()
@@ -222,8 +245,11 @@ class SettingsDialog(QDialog):
         changed = data_panel.is_changed()
         s = load_settings()
         s.update(data_panel.get_settings())
+        # 保存Tab设置
+        s.update(self.panels['tab_editor'].get_settings())
         save_settings(s)
         data_panel.load_current_settings()
+        self.panels['tab_editor'].load_current_settings()
         if changed:
             QMessageBox.information(self, '设置已保存', '部分设置（如数据/日志路径）需重启应用后生效。')
     def on_ok(self):

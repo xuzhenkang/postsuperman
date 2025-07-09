@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import QWidget, QPlainTextEdit, QTextEdit
 from PyQt5.QtCore import Qt, QSize, QRect
 from PyQt5.QtGui import QColor, QTextFormat, QTextCharFormat, QFont, QPainter, QTextCursor
 import json
+from ui.utils.settings_manager import load_settings
 
 
 class LineNumberArea(QWidget):
@@ -34,14 +35,21 @@ class CodeEditor(QPlainTextEdit):
     def set_mainwindow(self, mw):
         self.parent_mainwindow = mw
 
+    def get_tab_size(self):
+        try:
+            return int(load_settings().get('editor_tab_size', 4))
+        except Exception:
+            return 4
+
     def keyPressEvent(self, event):
+        tab_size = self.get_tab_size()
         if self.parent_mainwindow and hasattr(self.parent_mainwindow, 'raw_type_combo'):
             if self.parent_mainwindow.raw_type_combo.currentText() == 'JSON':
                 # Ctrl+B 一键美化
                 if event.key() == Qt.Key_B and event.modifiers() & Qt.ControlModifier:
                     try:
                         obj = json.loads(self.toPlainText())
-                        pretty = json.dumps(obj, ensure_ascii=False, indent=2)
+                        pretty = json.dumps(obj, ensure_ascii=False, indent=tab_size)
                         self.setPlainText(pretty)
                     except Exception:
                         pass
@@ -67,10 +75,10 @@ class CodeEditor(QPlainTextEdit):
                         for block in blocks:
                             block_cursor = QTextCursor(block)
                             block_cursor.movePosition(QTextCursor.StartOfBlock)
-                            block_cursor.insertText('    ')
+                            block_cursor.insertText(' ' * tab_size)
                         return
                     else:
-                        cursor.insertText('    ')
+                        cursor.insertText(' ' * tab_size)
                         return
                 if event.key() == Qt.Key_Backtab:
                     cursor = self.textCursor()
@@ -91,8 +99,8 @@ class CodeEditor(QPlainTextEdit):
                             block_cursor = QTextCursor(block)
                             block_cursor.movePosition(QTextCursor.StartOfBlock)
                             line = block.text()
-                            if line.startswith('    '):
-                                block_cursor.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 4)
+                            if line.startswith(' ' * tab_size):
+                                block_cursor.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, tab_size)
                                 block_cursor.removeSelectedText()
                             elif line.startswith('\t'):
                                 block_cursor.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
@@ -113,7 +121,7 @@ class CodeEditor(QPlainTextEdit):
                         else:
                             break
                     if text.rstrip().endswith(('{', '[', '(', ':')):
-                        indent += '    '
+                        indent += ' ' * tab_size
                     cursor.insertText(indent)
                     self.setTextCursor(cursor)
                     return

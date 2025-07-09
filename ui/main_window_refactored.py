@@ -500,7 +500,8 @@ class MainWindow(QWidget):
             'headers_widget': resp_headers_widget,
             'loading_overlay': resp_loading_overlay,
             'save_btn': save_resp_btn,
-            'clear_btn': clear_resp_btn
+            'clear_btn': clear_resp_btn,
+            'json_highlighter': resp_json_highlighter,  # 新增
         }
 
     def get_tab_key(self, idx):
@@ -777,17 +778,36 @@ class MainWindow(QWidget):
 
 
     def get_request_data_from_tree(self, item):
-        """从collections.json结构递归查找对应request数据"""
-        def find_req(nodes, name):
+        """从collections.json结构递归查找对应request数据，支持同名但不同路径的request"""
+        def get_path(item):
+            path = []
+            while item:
+                path.insert(0, item.text(0))
+                item = item.parent()
+            return path
+        def find_req(nodes, path):
+            if not path:
+                return None
             for node in nodes:
-                if node.get('type') == 'request' and node.get('name') == name:
-                    return node.get('request', {})
+                if node.get('type') == 'request' and node.get('name') == path[-1]:
+                    # 检查上级路径是否匹配
+                    parent = node
+                    matched = True
+                    for i in range(len(path)-2, -1, -1):
+                        parent = parent.get('parent')
+                        if not parent or parent.get('name') != path[i]:
+                            matched = False
+                            break
+                    if matched:
+                        return node.get('request', {})
                 elif node.get('type') == 'collection':
-                    result = find_req(node.get('children', []), name)
+                    # 递归查找，并传递 parent
+                    for child in node.get('children', []):
+                        child['parent'] = node
+                    result = find_req(node.get('children', []), path)
                     if result:
                         return result
             return None
-        
         # 加载collections.json数据
         path = self.get_collections_path()
         if not os.path.exists(path):
@@ -795,7 +815,8 @@ class MainWindow(QWidget):
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            return find_req(data, item.text(0))
+            item_path = get_path(item)
+            return find_req(data, item_path)
         except Exception:
             return None
 
@@ -1020,12 +1041,13 @@ class MainWindow(QWidget):
                         if 'application/json' in content_type:
                             obj = json.loads(body)
                             body = json.dumps(obj, ensure_ascii=False, indent=2)
-                            # 重新设置JSON高亮
-                            from ui.widgets.json_highlighter import JsonHighlighter
                             response_widget['body_edit'].document().setPlainText(body)
-                            highlighter = JsonHighlighter(response_widget['body_edit'].document())
+                            # 复用已有 highlighter
+                            response_widget['json_highlighter'].setDocument(response_widget['body_edit'].document())
                         else:
                             response_widget['body_edit'].setPlainText(body)
+                            # 关闭高亮
+                            response_widget['json_highlighter'].setDocument(None)
                     except Exception:
                         response_widget['body_edit'].setPlainText(body)
                     
