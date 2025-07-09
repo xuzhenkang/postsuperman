@@ -43,6 +43,7 @@ from PyQt5.QtWidgets import QTabWidget
 from ui.collection_tree_widget import CollectionTreeWidget
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.utils.settings_manager import load_settings
+from ui.utils.i18n import get_text
 
 
 class MainWindow(QWidget):
@@ -111,18 +112,25 @@ class MainWindow(QWidget):
         
     def create_menu_bar(self, main_layout):
         """创建菜单栏"""
+        from ui.utils.i18n import get_text
         menubar = QMenuBar(self)
-        
         # File菜单
-        file_menu = menubar.addMenu('File')
-        new_request_action = QAction('New Request', self)
-        new_collection_action = QAction('New Collection', self)
-        open_collection_action = QAction('Open Collection', self)
-        save_collection_as_action = QAction('Save Collection As', self)
-        save_all_action = QAction('Save All', self)
-        preferences_action = QAction('Preferences/Settings', self)  # 新增
-        exit_action = QAction('Exit', self)
-        
+        file_menu = menubar.addMenu(get_text('menu_file'))
+        file_menu.setProperty('_i18n_key', 'menu_file')
+        new_request_action = QAction(get_text('new_request'), self)
+        new_request_action.setProperty('_i18n_key', 'new_request')
+        new_collection_action = QAction(get_text('new_collection'), self)
+        new_collection_action.setProperty('_i18n_key', 'new_collection')
+        open_collection_action = QAction(get_text('open_collection'), self)
+        open_collection_action.setProperty('_i18n_key', 'open_collection')
+        save_collection_as_action = QAction(get_text('save_collection_as'), self)
+        save_collection_as_action.setProperty('_i18n_key', 'save_collection_as')
+        save_all_action = QAction(get_text('save_all'), self)
+        save_all_action.setProperty('_i18n_key', 'save_all')
+        preferences_action = QAction(get_text('preferences'), self)
+        preferences_action.setProperty('_i18n_key', 'preferences')
+        exit_action = QAction(get_text('exit'), self)
+        exit_action.setProperty('_i18n_key', 'exit')
         file_menu.addAction(new_request_action)
         file_menu.addAction(new_collection_action)
         file_menu.addSeparator()
@@ -131,20 +139,21 @@ class MainWindow(QWidget):
         file_menu.addAction(save_collection_as_action)
         file_menu.addAction(save_all_action)
         file_menu.addSeparator()
-        file_menu.addAction(preferences_action)  # 新增
+        file_menu.addAction(preferences_action)
         file_menu.addSeparator()
         file_menu.addAction(exit_action)
-        
         # Help菜单
-        help_menu = menubar.addMenu('Help')
-        about_action = QAction('About', self)
-        doc_action = QAction('Documentation', self)
-        contact_action = QAction('Contact Me', self)
-        
+        help_menu = menubar.addMenu(get_text('menu_help'))
+        help_menu.setProperty('_i18n_key', 'menu_help')
+        about_action = QAction(get_text('menu_about'), self)
+        about_action.setProperty('_i18n_key', 'menu_about')
+        doc_action = QAction(get_text('manual'), self)
+        doc_action.setProperty('_i18n_key', 'manual')
+        contact_action = QAction(get_text('contact'), self)
+        contact_action.setProperty('_i18n_key', 'contact')
         help_menu.addAction(about_action)
         help_menu.addAction(doc_action)
         help_menu.addAction(contact_action)
-        
         # 连接信号
         new_request_action.triggered.connect(self.create_new_request)
         new_collection_action.triggered.connect(self.create_collection)
@@ -156,26 +165,24 @@ class MainWindow(QWidget):
         about_action.triggered.connect(self.show_about)
         doc_action.triggered.connect(self.show_doc)
         contact_action.triggered.connect(self.show_contact)
-        
         main_layout.setMenuBar(menubar)
         
     def create_top_bar(self, main_layout):
         """创建顶部导航栏"""
+        from ui.utils.i18n import get_text
         topbar = QFrame()
         topbar.setFixedHeight(48)
         topbar_layout = QHBoxLayout(topbar)
         topbar_layout.setContentsMargins(16, 0, 16, 0)
         topbar_layout.setSpacing(16)
-        
         logo = QLabel('🦸')
         logo.setFixedWidth(32)
-        title = QLabel('<b>postsuperman</b>')
+        title = QLabel(f'<b>{get_text("app_title")}</b>')
+        title.setProperty('_i18n_key', 'app_title')
         title.setStyleSheet('font-size:18px;')
-        
         topbar_layout.addWidget(logo)
         topbar_layout.addWidget(title)
         topbar_layout.addStretch()
-        
         main_layout.addWidget(topbar)
         
     def create_main_splitter(self, main_layout):
@@ -277,6 +284,7 @@ class MainWindow(QWidget):
         
     def create_welcome_page(self):
         """创建统一的欢迎页"""
+        from ui.utils.i18n import get_text
         welcome_page = QWidget()
         welcome_page.setStyleSheet("""
             QWidget {
@@ -285,12 +293,10 @@ class MainWindow(QWidget):
                 border: none;
             }
         """)
-        
         welcome_vbox = QVBoxLayout(welcome_page)
         welcome_vbox.setAlignment(Qt.AlignCenter)
         welcome_vbox.setSpacing(30)
         welcome_vbox.setContentsMargins(40, 40, 40, 40)
-        
         # 应用图标
         icon_label = QLabel()
         icon_pixmap = self._app_icon.pixmap(96, 96)
@@ -303,9 +309,9 @@ class MainWindow(QWidget):
             }
         """)
         welcome_vbox.addWidget(icon_label)
-        
         # 主标题
-        title_label = QLabel('Welcome to PostSuperman')
+        title_label = QLabel(get_text('welcome'))
+        title_label.setObjectName('welcome_title_label')
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("""
             QLabel {
@@ -317,9 +323,12 @@ class MainWindow(QWidget):
             }
         """)
         welcome_vbox.addWidget(title_label)
-        
         # 描述文本
-        desc_label = QLabel('Click on collections or create new requests to start your API debugging journey.\n\nSupports multi-tabs, parameter/header/body editing, cURL import, \n\nresponse highlighting, collection management and other rich features.')
+        desc_text = get_text('welcome_desc') if 'welcome_desc' in get_text.__globals__['_texts'][get_text.__globals__['_language']] else (
+            'Click on collections or create new requests to start your API debugging journey.\n\nSupports multi-tabs, parameter/header/body editing, cURL import, \n\nresponse highlighting, collection management and other rich features.'
+        )
+        desc_label = QLabel(desc_text)
+        desc_label.setObjectName('welcome_desc_label')
         desc_label.setAlignment(Qt.AlignCenter)
         desc_label.setStyleSheet("""
             QLabel {
@@ -331,7 +340,6 @@ class MainWindow(QWidget):
             }
         """)
         welcome_vbox.addWidget(desc_label)
-        
         return welcome_page
         
     def init_logging(self):
@@ -2910,3 +2918,112 @@ Thank you for using PostSuperman!'''
 
     def get_collections_path(self):
         return getattr(self, '_collections_path', None) or 'user-data/collections.json'
+
+    def refresh_texts(self):
+        from ui.utils.i18n import get_text
+        menubar = self.findChild(QMenuBar)
+        if menubar:
+            file_menu = menubar.actions()[0].menu()
+            file_menu.setTitle(get_text('menu_file'))
+            file_menu.actions()[0].setText(get_text('new_request'))
+            file_menu.actions()[1].setText(get_text('new_collection'))
+            file_menu.actions()[3].setText(get_text('open_collection'))
+            file_menu.actions()[5].setText(get_text('save_collection_as'))
+            file_menu.actions()[6].setText(get_text('save_all'))
+            file_menu.actions()[8].setText(get_text('preferences'))
+            file_menu.actions()[10].setText(get_text('exit'))
+            help_menu = menubar.actions()[1].menu()
+            help_menu.setTitle(get_text('menu_help'))
+            help_menu.actions()[0].setText(get_text('menu_about'))
+            help_menu.actions()[1].setText(get_text('manual'))
+            help_menu.actions()[2].setText(get_text('contact'))
+        # 顶部标题
+        topbar = self.findChild(QFrame)
+        if topbar:
+            for w in topbar.findChildren(QLabel):
+                if 'postsuperman' in w.text().lower():
+                    w.setText(f'<b>{get_text("app_title")}</b>')
+        # 递归刷新所有QLabel、QPushButton、QGroupBox
+        for label in self.findChildren(QLabel):
+            orig = label.property('_i18n_key')
+            if orig:
+                label.setText(get_text(orig))
+        for btn in self.findChildren(QPushButton):
+            orig = btn.property('_i18n_key')
+            if orig:
+                btn.setText(get_text(orig))
+        for group in self.findChildren(QGroupBox):
+            orig = group.property('_i18n_key')
+            if orig:
+                group.setTitle(get_text(orig))
+        # QTabWidget/tabBar
+        for tab in self.findChildren(QTabWidget):
+            for i in range(tab.count()):
+                orig = tab.widget(i).property('_i18n_tab_key')
+                if orig:
+                    tab.setTabText(i, get_text(orig))
+        # QTreeWidgetItem
+        for tree in self.findChildren(QTreeWidget):
+            def update_tree_item_text(item):
+                if item is None:
+                    return
+                key = item.data(0, Qt.UserRole)
+                if isinstance(key, str):
+                    item.setText(0, get_text(key))
+                elif key is not None:
+                    item.setText(0, str(key))
+                for i in range(item.childCount()):
+                    update_tree_item_text(item.child(i))
+            for i in range(tree.topLevelItemCount()):
+                update_tree_item_text(tree.topLevelItem(i))
+        # 其他区域可继续扩展...
+        # 欢迎页多语言刷新
+        if hasattr(self, 'welcome_page') and self.welcome_page is not None:
+            title_label = self.welcome_page.findChild(QLabel, 'welcome_title_label')
+            if title_label:
+                title_label.setText(get_text('welcome'))
+            desc_label = self.welcome_page.findChild(QLabel, 'welcome_desc_label')
+            if desc_label:
+                desc_text = get_text('welcome_desc') if 'welcome_desc' in get_text.__globals__['_texts'][get_text.__globals__['_language']] else (
+                    'Click on collections or create new requests to start your API debugging journey.\n\nSupports multi-tabs, parameter/header/body editing, cURL import, \n\nresponse highlighting, collection management and other rich features.'
+                )
+                desc_label.setText(desc_text)
+
+    def refresh_fonts(self):
+        from ui.utils.settings_manager import load_settings
+        from PyQt5.QtGui import QFont
+        from PyQt5.QtWidgets import QMenuBar, QMenu, QAction, QTabWidget, QTreeWidget, QTreeWidgetItem
+        s = load_settings()
+        font = QFont(s.get('ui_font_family', '微软雅黑'), s.get('ui_font_size', 12))
+        def set_font_recursive(widget):
+            widget.setFont(font)
+            for child in widget.findChildren(QWidget):
+                set_font_recursive(child)
+        set_font_recursive(self)
+        # QMenuBar/QMenu/QAction
+        menubar = self.findChild(QMenuBar)
+        if menubar:
+            menubar.setFont(font)
+            for action in menubar.actions():
+                action.setFont(font)
+                menu = action.menu()
+                if menu:
+                    menu.setFont(font)
+                    for subaction in menu.actions():
+                        subaction.setFont(font)
+        # QTabWidget
+        for tab in self.findChildren(QTabWidget):
+            tab.setFont(font)
+            if hasattr(tab, 'tabBar'):
+                tab.tabBar().setFont(font)
+        # QTreeWidget/QTreeWidgetItem
+        for tree in self.findChildren(QTreeWidget):
+            tree.setFont(font)
+            def set_tree_item_font(item):
+                if item is None:
+                    return
+                item.setFont(0, font)
+                for i in range(item.childCount()):
+                    set_tree_item_font(item.child(i))
+            for i in range(tree.topLevelItemCount()):
+                set_tree_item_font(tree.topLevelItem(i))

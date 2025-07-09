@@ -28,9 +28,9 @@ class AboutDialog(QDialog):
         vbox = QVBoxLayout(self)
         vbox.setSpacing(12)
         # 艺术字应用名称（顶部）
-        art_label = QLabel('postsuperman')
-        art_label.setAlignment(Qt.AlignCenter)
-        art_label.setStyleSheet('''
+        self.art_label = QLabel('postsuperman')
+        self.art_label.setAlignment(Qt.AlignCenter)
+        self.art_label.setStyleSheet('''
             QLabel {
                 font-size: 28px;
                 font-family: "Arial Black", "微软雅黑", Arial, sans-serif;
@@ -43,8 +43,8 @@ class AboutDialog(QDialog):
         shadow.setBlurRadius(8)
         shadow.setColor(QColor(0, 0, 0, 60))
         shadow.setOffset(1, 2)
-        art_label.setGraphicsEffect(shadow)
-        vbox.addWidget(art_label)
+        self.art_label.setGraphicsEffect(shadow)
+        vbox.addWidget(self.art_label)
         # Logo/Icon
         icon_label = QLabel()
         # 兼容 PyInstaller 路径
@@ -63,31 +63,13 @@ class AboutDialog(QDialog):
         line1.setStyleSheet('background: #e0e0e0; margin: 0 20px;')
         vbox.addWidget(line1)
         # 描述区（可滚动）
-        desc_html = (
-            '<div style="text-align:center;">'
-            '<span style="font-size:13px; color:#34495e;">A powerful API testing tool built with Python and PyQt5.</span><br><br>'
-            '<b>Features:</b><br>'
-            '<ul style="margin:0; padding-left:20px; text-align:left; display:inline-block;">'
-            '<li>Multi-tab request management</li>'
-            '<li>cURL import support</li>'
-            '<li>Collection organization</li>'
-            '<li>Response highlighting</li>'
-            '<li>Request history</li>'
-            '<li>Environment variables</li>'
-            '</ul>'
-            '<br>Powered by Python & PyQt5<br>'
-            'Developed by xuzhenkang@hotmail.com<br>'
-            '<a href="https://github.com/xuzhenkang/postsuperman">https://github.com/xuzhenkang/postsuperman</a><br>'
-            'Version: 1.0.0'
-            '</div>'
-        )
-        desc_label = QLabel(desc_html)
-        desc_label.setWordWrap(True)
-        desc_label.setTextFormat(Qt.RichText)
-        desc_label.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
-        desc_label.setStyleSheet("font-size: 13px; color: #2c3e50; line-height: 1.7;")
+        self.desc_label = QLabel()
+        self.desc_label.setWordWrap(True)
+        self.desc_label.setTextFormat(Qt.RichText)
+        self.desc_label.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        self.desc_label.setStyleSheet("font-size: 13px; color: #2c3e50; line-height: 1.7;")
         scroll = QScrollArea()
-        scroll.setWidget(desc_label)
+        scroll.setWidget(self.desc_label)
         scroll.setWidgetResizable(True)
         scroll.setFixedHeight(170)
         scroll.setFrameShape(QScrollArea.NoFrame)
@@ -121,8 +103,8 @@ class AboutDialog(QDialog):
         ''')
         self.copy_btn.clicked.connect(self.copy_info)
         button_layout.addWidget(self.copy_btn)
-        close_btn = QPushButton('Close')
-        close_btn.setStyleSheet('''
+        self.close_btn = QPushButton('Close')
+        self.close_btn.setStyleSheet('''
             QPushButton {
                 min-width: 90px;
                 padding: 6px 18px;
@@ -135,10 +117,11 @@ class AboutDialog(QDialog):
                 background: #115293;
             }
         ''')
-        close_btn.clicked.connect(self.accept)
-        button_layout.addWidget(close_btn)
+        self.close_btn.clicked.connect(self.accept)
+        button_layout.addWidget(self.close_btn)
         button_layout.addStretch()
         vbox.addLayout(button_layout)
+        self.refresh_texts()
         
     def copy_info(self):
         """复制信息到剪贴板"""
@@ -187,3 +170,56 @@ class AboutDialog(QDialog):
                 self._copy_timer = None 
         except Exception as e:
             print("restore_copy_btn error:", e) 
+
+    def refresh_texts(self):
+        from ui.utils.i18n import get_text
+        self.setWindowTitle(get_text('about_title'))
+        self.art_label.setText(get_text('app_title'))
+        # 英文/中文描述
+        lang = getattr(self, '_lang', None)
+        if not lang:
+            from ui.utils.settings_manager import load_settings
+            lang = load_settings().get('ui_language', 'zh')
+        if lang == 'en':
+            desc_html = (
+                '<div style="text-align:center;">'
+                '<span style="font-size:13px; color:#34495e;">A powerful API testing tool built with Python and PyQt5.</span><br><br>'
+                '<b>Features:</b><br>'
+                '<ul style="margin:0; padding-left:20px; text-align:left; display:inline-block;">'
+                '<li>Multi-tab request management</li>'
+                '<li>cURL import support</li>'
+                '<li>Collection organization</li>'
+                '<li>Response highlighting</li>'
+                '<li>Request history</li>'
+                '<li>Environment variables</li>'
+                '</ul>'
+                '<br>Powered by Python & PyQt5<br>'
+                'Developed by xuzhenkang@hotmail.com<br>'
+                '<a href="https://github.com/xuzhenkang/postsuperman">https://github.com/xuzhenkang/postsuperman</a><br>'
+                'Version: 1.0.0'
+                '</div>'
+            )
+            self.copy_btn.setText('Copy Info')
+            self.close_btn.setText('Close')
+        else:
+            desc_html = (
+                '<div style="text-align:center;">'
+                '<span style="font-size:13px; color:#34495e;">一款基于 Python 和 PyQt5 的强大 API 测试工具。</span><br><br>'
+                '<b>主要功能：</b><br>'
+                '<ul style="margin:0; padding-left:20px; text-align:left; display:inline-block;">'
+                '<li>多标签请求管理</li>'
+                '<li>cURL 导入支持</li>'
+                '<li>集合分组管理</li>'
+                '<li>响应高亮显示</li>'
+                '<li>请求历史记录</li>'
+                '<li>环境变量支持</li>'
+                '</ul>'
+                '<br>Powered by Python & PyQt5<br>'
+                '开发者: xuzhenkang@hotmail.com<br>'
+                '<a href="https://github.com/xuzhenkang/postsuperman">https://github.com/xuzhenkang/postsuperman</a><br>'
+                '版本: 1.0.0'
+                '</div>'
+            )
+            self.copy_btn.setText('复制信息')
+            self.close_btn.setText('关闭')
+        self.desc_label.setText(desc_html) 

@@ -22,6 +22,7 @@ class LineNumberArea(QWidget):
 
 
 class CodeEditor(QPlainTextEdit):
+    _all_editors = set()
     """代码编辑器控件，支持行号显示和JSON格式化"""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -31,13 +32,39 @@ class CodeEditor(QPlainTextEdit):
         self.updateLineNumberAreaWidth(0)
         self.parent_mainwindow = None  # 用于判断是否为json模式
         self.setTabChangesFocus(False)
+        # 注册到全局集合
+        CodeEditor._all_editors.add(self)
+        # 初始化字体
+        s = load_settings()
+        font = QFont(s.get('editor_font_family', 'Consolas'), s.get('editor_font_size', 12))
+        self.setFont(font)
+    def __del__(self):
+        CodeEditor._all_editors.discard(self)
+    @staticmethod
+    def apply_global_editor_font(family, size):
+        font = QFont(family, size)
+        for editor in list(CodeEditor._all_editors):
+            try:
+                editor.setFont(font)
+            except Exception:
+                pass
+
+    @staticmethod
+    def apply_global_tab_size(tab_size):
+        for editor in list(CodeEditor._all_editors):
+            try:
+                editor._tab_size = tab_size
+                # 强制刷新内容以应用新tab宽度
+                editor.setPlainText(editor.toPlainText())
+            except Exception:
+                pass
 
     def set_mainwindow(self, mw):
         self.parent_mainwindow = mw
 
     def get_tab_size(self):
         try:
-            return int(load_settings().get('editor_tab_size', 4))
+            return getattr(self, '_tab_size', int(load_settings().get('editor_tab_size', 4)))
         except Exception:
             return 4
 

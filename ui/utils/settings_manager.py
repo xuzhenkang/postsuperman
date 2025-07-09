@@ -15,7 +15,12 @@ DATA_DIR = get_default_data_dir()
 DEFAULT_SETTINGS = {
     "collections_path": os.path.join(DATA_DIR, "collections.json"),
     "log_path": os.path.join(DATA_DIR, "postsuperman.log"),
-    "editor_tab_size": 4,  # 新增，编辑器Tab空格数
+    "editor_tab_size": 4,  # 编辑器Tab空格数
+    "ui_font_family": "微软雅黑",  # UI默认字体
+    "ui_font_size": 12,  # UI默认字体大小
+    "editor_font_family": "Consolas",  # 编辑器默认字体
+    "editor_font_size": 12,  # 编辑器默认字号
+    "ui_language": "zh",  # UI默认语言
 }
 SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
 
