@@ -5,7 +5,7 @@ _language = 'zh'
 
 _texts = {
     'zh': {
-        'app_title': 'PostSuperman 接口调试工具',
+        'app_title': 'PostSuperman',
         'menu_file': '文件',
         'menu_edit': '编辑',
         'menu_view': '视图',
@@ -97,7 +97,7 @@ _texts = {
         'restore_defaults': '恢复默认',
     },
     'en': {
-        'app_title': 'PostSuperman API Debugger',
+        'app_title': 'PostSuperman',
         'menu_file': 'File',
         'menu_edit': 'Edit',
         'menu_view': 'View',

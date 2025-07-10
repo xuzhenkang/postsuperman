@@ -2967,11 +2967,16 @@ Thank you for using PostSuperman!'''
             def update_tree_item_text(item):
                 if item is None:
                     return
+                # 判断是否为request节点（data为dict或类型标记为'request'）
                 key = item.data(0, Qt.UserRole)
+                type_flag = item.data(0, Qt.UserRole+1)
                 if isinstance(key, str):
                     item.setText(0, get_text(key))
-                elif key is not None:
-                    item.setText(0, str(key))
+                elif type_flag == 'collection':
+                    # 仅collection节点允许用key（如多语言key）
+                    if isinstance(key, str):
+                        item.setText(0, get_text(key))
+                # 否则（如request节点，key为dict），不覆盖其文本
                 for i in range(item.childCount()):
                     update_tree_item_text(item.child(i))
             for i in range(tree.topLevelItemCount()):
