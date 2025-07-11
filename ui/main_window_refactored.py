@@ -349,13 +349,15 @@ class MainWindow(QWidget):
         log_dir = os.path.dirname(log_path)
         if not os.path.exists(log_dir):
             os.makedirs(log_dir, exist_ok=True)
-        logging.basicConfig(
-            filename=log_path,
-            filemode='a',
-            format='%(asctime)s %(levelname)s %(message)s',
-            level=logging.INFO
-        )
+        log_format = '%(asctime)s %(levelname)s %(message)s'
+        date_format = '%Y-%m-%d %H:%M:%S'
+        file_handler = logging.FileHandler(log_path, encoding='utf-8')
+        file_handler.setLevel(logging.INFO)
+        formatter = logging.Formatter(log_format, date_format)
+        file_handler.setFormatter(formatter)
         self.logger = logging.getLogger('postsuperman')
+        self.logger.setLevel(logging.INFO)
+        self.logger.addHandler(file_handler)
         self.logger.info('=' * 50)
         self.logger.info('postsuperman 应用启动')
         self.logger.info(f'工作目录: {self._workspace_dir}')
