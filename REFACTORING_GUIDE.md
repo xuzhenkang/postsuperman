@@ -22,7 +22,7 @@ main.py (单一文件，约 1000+ 行)
 ### 重构后结构
 ```
 ui/
-├── main_window_refactored.py    # 主窗口 (约 400 行)
+├── main_window.py    # 主窗口 (约 400 行)
 ├── widgets/
 │   ├── request_editor.py        # 请求编辑器组件
 │   ├── code_editor.py          # 代码编辑器组件
@@ -40,7 +40,7 @@ ui/
 
 ## 核心模块说明
 
-### 1. 主窗口 (main_window_refactored.py)
+### 1. 主窗口 (main_window.py)
 
 **职责**: 
 - 应用程序的主界面
