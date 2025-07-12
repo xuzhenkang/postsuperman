@@ -1281,10 +1281,11 @@ class MainWindow(QWidget):
         if '*' in tab_text:
             # 显示确认对话框
             from PyQt5.QtWidgets import QMessageBox
+            from ui.utils.i18n import get_text
             choice = QMessageBox.question(
                 self, 
-                'Unsaved Changes', 
-                f'Tab "{tab_text.replace("*", "")}" has unsaved changes.\nDo you want to close it anyway?',
+                get_text('dialog_unsaved_changes'), 
+                get_text('msg_tab_unsaved_close').format(name=tab_text.replace("*", "")),
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
@@ -1305,11 +1306,12 @@ class MainWindow(QWidget):
     def show_tab_context_menu(self, pos):
         self.ensure_req_tabs()
         """显示标签页右键菜单"""
+        from ui.utils.i18n import get_text
         menu = QMenu(self)
         
-        close_action = menu.addAction('Close Tab')
-        close_other_action = menu.addAction('Close Other Tabs')
-        close_all_action = menu.addAction('Close All Tabs')
+        close_action = menu.addAction(get_text('context_close_tab'))
+        close_other_action = menu.addAction(get_text('context_close_other_tabs'))
+        close_all_action = menu.addAction(get_text('context_close_all_tabs'))
         
         action = menu.exec_(self.req_tabs.mapToGlobal(pos))
         
@@ -1329,10 +1331,11 @@ class MainWindow(QWidget):
             if '*' in tab_text:
                 # 显示确认对话框
                 from PyQt5.QtWidgets import QMessageBox
+                from ui.utils.i18n import get_text
                 choice = QMessageBox.question(
                     self, 
-                    'Unsaved Changes', 
-                    f'Tab "{tab_text.replace("*", "")}" has unsaved changes.\nDo you want to close it anyway?',
+                    get_text('dialog_unsaved_changes'), 
+                    get_text('msg_tab_unsaved_close').format(name=tab_text.replace("*", "")),
                     QMessageBox.Yes | QMessageBox.No,
                     QMessageBox.No
                 )
@@ -1354,11 +1357,12 @@ class MainWindow(QWidget):
 
         if unsaved_tabs:
             from PyQt5.QtWidgets import QMessageBox
+            from ui.utils.i18n import get_text
             tab_list = "\n".join([f"• {tab}" for tab in unsaved_tabs])
             choice = QMessageBox.question(
                 self, 
-                'Unsaved Changes', 
-                f'The following tabs have unsaved changes:\n{tab_list}\n\nDo you want to close them anyway?',
+                get_text('dialog_unsaved_changes'), 
+                get_text('msg_tabs_unsaved_close').format(tab_list=tab_list),
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
@@ -1402,11 +1406,12 @@ class MainWindow(QWidget):
         if unsaved_tabs:
             # 显示确认对话框
             from PyQt5.QtWidgets import QMessageBox
+            from ui.utils.i18n import get_text
             tab_list = "\n".join([f"• {tab}" for tab in unsaved_tabs])
             choice = QMessageBox.question(
                 self, 
-                'Unsaved Changes', 
-                f'The following tabs have unsaved changes:\n{tab_list}\n\nDo you want to close them all anyway?',
+                get_text('dialog_unsaved_changes'), 
+                get_text('msg_tabs_unsaved_close_all').format(tab_list=tab_list),
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
@@ -1995,6 +2000,7 @@ Thank you for using PostSuperman!'''
     def show_collection_menu(self, pos):
         """显示集合右键菜单"""
         from PyQt5.QtWidgets import QMenu, QMessageBox, QInputDialog
+        from ui.utils.i18n import get_text
         item = self.collection_tree.itemAt(pos)
         menu = QMenu(self)
         
@@ -2017,24 +2023,31 @@ Thank you for using PostSuperman!'''
         
         if item is None:
             # 空白处右键菜单
-            new_collection_action = menu.addAction('New Collection')
+            new_collection_action = menu.addAction(get_text('context_new_collection'))
         elif is_collection(item):
             # Collection节点右键菜单
-            new_collection_action = menu.addAction('New Collection')
-            new_req_action = menu.addAction('New Request')
+            new_collection_action = menu.addAction(get_text('context_new_collection'))
+            new_req_action = menu.addAction(get_text('context_new_request'))
             new_req_action.triggered.connect(self.create_new_request)
             menu.addSeparator()
-            rename_action = menu.addAction('Rename')
-            delete_action = menu.addAction('Delete')
+            rename_action = menu.addAction(get_text('context_rename'))
+            delete_action = menu.addAction(get_text('context_delete'))
         elif is_request(item):
             # Request节点右键菜单
-            rename_action = menu.addAction('Rename')
-            delete_action = menu.addAction('Delete')
+            duplicate_action = menu.addAction(get_text('context_duplicate'))
+            menu.addSeparator()
+            rename_action = menu.addAction(get_text('context_rename'))
+            delete_action = menu.addAction(get_text('context_delete'))
         action = menu.exec_(self.collection_tree.viewport().mapToGlobal(pos))
         
+        # 处理Request节点的Duplicate操作
+        if item is not None and is_request(item) and action and action.text() == get_text('context_duplicate'):
+            self.duplicate_request(item)
+            return
+        
         # 处理空白处的New Collection
-        if item is None and action and action.text() == 'New Collection':
-            name, ok = QInputDialog.getText(self, 'New Collection', 'Enter collection name:')
+        if item is None and action and action.text() == get_text('context_new_collection'):
+            name, ok = QInputDialog.getText(self, get_text('dialog_new_collection'), get_text('msg_enter_collection_name'))
             if not ok or not name.strip():
                 return
             name = name.strip()
@@ -2044,7 +2057,7 @@ Thank you for using PostSuperman!'''
                         return True
                 return False
             if is_duplicate(self.collection_tree, name):
-                QMessageBox.warning(self, 'Create Failed', f'A collection named "{name}" already exists!')
+                QMessageBox.warning(self, get_text('dialog_create_failed'), get_text('msg_collection_exists').format(name=name))
                 return
             item = QTreeWidgetItem(self.collection_tree, [name])
             item.setIcon(0, self.folder_icon)
@@ -2054,7 +2067,7 @@ Thank you for using PostSuperman!'''
             
         # 处理Collection节点的菜单
         if item is not None and is_collection(item) and new_collection_action and action == new_collection_action:
-            name, ok = QInputDialog.getText(self, 'New Collection', 'Enter collection name:')
+            name, ok = QInputDialog.getText(self, get_text('dialog_new_collection'), get_text('msg_enter_collection_name'))
             if not ok or not name.strip():
                 return
             name = name.strip()
@@ -2062,7 +2075,7 @@ Thank you for using PostSuperman!'''
             for i in range(item.childCount()):
                 sibling = item.child(i)
                 if sibling and sibling.text(0) == name:
-                    QMessageBox.warning(self, 'Create Failed', f'A collection named "{name}" already exists in this collection!')
+                    QMessageBox.warning(self, get_text('dialog_create_failed'), get_text('msg_collection_exists_in_parent').format(name=name))
                     return
             new_item = QTreeWidgetItem(item, [name])
             new_item.setIcon(0, self.folder_icon)
@@ -2071,23 +2084,23 @@ Thank you for using PostSuperman!'''
             return
         elif rename_action and action == rename_action:
             old_path = self.build_item_path(item)  # 先取旧路径
-            name, ok = QInputDialog.getText(self, 'Rename', 'Enter new name:', text=item.text(0))
+            name, ok = QInputDialog.getText(self, get_text('dialog_rename'), get_text('msg_enter_new_name'), text=item.text(0))
             if not ok or not name.strip():
                 return
             name = name.strip()
             if '*' in name:
-                QMessageBox.warning(self, 'Invalid Name', 'Request name cannot contain asterisk (*) character!')
+                QMessageBox.warning(self, get_text('dialog_invalid_name'), get_text('msg_request_name_no_asterisk'))
                 return
             if item.parent() is None:
                 for i in range(self.collection_tree.topLevelItemCount()):
                     if self.collection_tree.topLevelItem(i) != item and self.collection_tree.topLevelItem(i).text(0) == name:
-                        QMessageBox.warning(self, 'Rename Failed', f'A collection named "{name}" already exists!')
+                        QMessageBox.warning(self, get_text('dialog_rename_failed'), get_text('msg_collection_exists').format(name=name))
                         return
             else:
                 parent = item.parent()
                 for i in range(parent.childCount()):
                     if parent.child(i) != item and parent.child(i).text(0) == name:
-                        QMessageBox.warning(self, 'Rename Failed', f'A request named "{name}" already exists in this collection!')
+                        QMessageBox.warning(self, get_text('dialog_rename_failed'), get_text('msg_request_exists_in_parent').format(name=name))
                         return
             old_name = item.text(0)
             item.setText(0, name)
@@ -2113,10 +2126,8 @@ Thank you for using PostSuperman!'''
                 child_count = item.childCount()
                 choice = QMessageBox.question(
                     self, 
-                    'Delete Collection', 
-                    f'Are you sure you want to delete the collection "{item.text(0)}"?\n\n'
-                    f'This will also delete all {child_count} child item(s) in this collection.\n\n'
-                    'This action cannot be undone.',
+                    get_text('dialog_delete_collection'), 
+                    get_text('msg_delete_collection_confirm').format(name=item.text(0), count=child_count),
                     QMessageBox.Yes | QMessageBox.No,
                     QMessageBox.No
                 )
@@ -2145,8 +2156,8 @@ Thank you for using PostSuperman!'''
                         if tab_text.endswith('*'):
                             has_unsaved = True
                 if has_unsaved:
-                    reply = QMessageBox.question(self, 'Unsaved Changes',
-                        'The request you are deleting has unsaved changes in an open tab.\nAre you sure you want to delete and close the tab?',
+                    reply = QMessageBox.question(self, get_text('dialog_unsaved_changes'),
+                        get_text('msg_delete_request_unsaved'),
                         QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
                     if reply != QMessageBox.Yes:
                         return
@@ -3034,3 +3045,134 @@ Thank you for using PostSuperman!'''
                     set_tree_item_font(item.child(i))
             for i in range(tree.topLevelItemCount()):
                 set_tree_item_font(tree.topLevelItem(i))
+
+    def duplicate_request(self, item):
+        """复制请求节点"""
+        from PyQt5.QtWidgets import QMessageBox
+        
+        # 获取原始请求名称
+        original_name = item.text(0)
+        
+        # 生成唯一的复制名称
+        def generate_unique_name(base_name, parent_item):
+            """生成唯一的请求名称"""
+            counter = 0
+            while True:
+                if counter == 0:
+                    new_name = f"{base_name}_copy"
+                else:
+                    new_name = f"{base_name}_copy{counter}"
+                
+                # 检查同级节点中是否已存在该名称
+                exists = False
+                if parent_item:
+                    for i in range(parent_item.childCount()):
+                        sibling = parent_item.child(i)
+                        if sibling and sibling.text(0) == new_name:
+                            exists = True
+                            break
+                
+                if not exists:
+                    return new_name
+                counter += 1
+        
+        # 获取父集合节点
+        parent_collection = item.parent()
+        if not parent_collection:
+            QMessageBox.warning(self, 'Duplicate Failed', 'Cannot duplicate request: no parent collection found!')
+            return
+        
+        # 生成唯一名称
+        new_name = generate_unique_name(original_name, parent_collection)
+        
+        # 获取原始请求数据
+        original_data = self.get_request_data_from_tree(item)
+        if not original_data:
+            QMessageBox.warning(self, 'Duplicate Failed', 'Cannot duplicate request: original request data not found!')
+            return
+        
+        # 创建新的请求编辑器并填充数据
+        req_editor = RequestEditor(self, req_name=new_name)
+        
+        # 复制请求数据
+        req_editor.method_combo.setCurrentText(original_data.get('method', 'GET'))
+        req_editor.url_edit.setText(original_data.get('url', ''))
+        
+        # 复制 Params
+        req_editor.params_table.setRowCount(1)
+        for i, param in enumerate(original_data.get('params', [])):
+            if i >= req_editor.params_table.rowCount()-1:
+                req_editor.params_table.insertRow(req_editor.params_table.rowCount())
+                req_editor.add_table_row(req_editor.params_table, req_editor.params_table.rowCount()-1)
+            req_editor.params_table.setItem(i, 1, QTableWidgetItem(param.get('key', '')))
+            req_editor.params_table.setItem(i, 2, QTableWidgetItem(param.get('value', '')))
+        
+        # 复制 Headers
+        req_editor.headers_table.setRowCount(1)
+        for i, h in enumerate(original_data.get('headers', [])):
+            if i >= req_editor.headers_table.rowCount()-1:
+                req_editor.headers_table.insertRow(req_editor.headers_table.rowCount())
+                req_editor.add_table_row(req_editor.headers_table, req_editor.headers_table.rowCount()-1)
+            req_editor.headers_table.setItem(i, 1, QTableWidgetItem(h.get('key', '')))
+            req_editor.headers_table.setItem(i, 2, QTableWidgetItem(h.get('value', '')))
+        req_editor.refresh_table_widgets(req_editor.headers_table)
+        
+        # 只保留一个空白行
+        while req_editor.headers_table.rowCount() > len(original_data.get('headers', [])) + 1:
+            req_editor.headers_table.removeRow(req_editor.headers_table.rowCount()-2)
+        
+        # 复制 Body
+        body_type = original_data.get('body_type', 'none')
+        if body_type == 'form-data':
+            req_editor.body_form_radio.setChecked(True)
+            req_editor.form_table.setRowCount(1)
+            for i, item in enumerate(original_data.get('body', [])):
+                if i >= req_editor.form_table.rowCount()-1:
+                    req_editor.form_table.insertRow(req_editor.form_table.rowCount())
+                    req_editor.add_table_row(req_editor.form_table, req_editor.form_table.rowCount()-1)
+                req_editor.form_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                # 设置Type列QComboBox
+                type_combo = req_editor.form_table.cellWidget(i, 2)
+                type_val = item.get('type', 'Text')
+                if type_combo:
+                    idx = type_combo.findText(type_val)
+                    if idx >= 0:
+                        type_combo.setCurrentIndex(idx)
+                        req_editor.update_row_for_type(req_editor.form_table, i)
+                # 设置Value列
+                if type_val == 'File':
+                    req_editor.form_table.setItem(i, 3, QTableWidgetItem(item.get('value', '')))
+                    req_editor.update_row_for_type(req_editor.form_table, i)
+                else:
+                    req_editor.form_table.setItem(i, 3, QTableWidgetItem(item.get('value', '')))
+                # 设置Description列
+                req_editor.form_table.setItem(i, 4, QTableWidgetItem(item.get('description', '')) if 'description' in item else QTableWidgetItem(''))
+            # 只保留一个空白行
+            while req_editor.form_table.rowCount() > len(original_data.get('body', [])) + 1:
+                req_editor.form_table.removeRow(req_editor.form_table.rowCount()-2)
+        elif body_type == 'x-www-form-urlencoded':
+            req_editor.body_url_radio.setChecked(True)
+            req_editor.url_table.setRowCount(1)
+            for i, item in enumerate(original_data.get('body', [])):
+                if i >= req_editor.url_table.rowCount()-1:
+                    req_editor.url_table.insertRow(req_editor.url_table.rowCount())
+                    req_editor.add_table_row(req_editor.url_table, req_editor.url_table.rowCount()-1)
+                req_editor.url_table.setItem(i, 1, QTableWidgetItem(item.get('key', '')))
+                req_editor.url_table.setItem(i, 2, QTableWidgetItem(item.get('value', '')))
+            while req_editor.url_table.rowCount() > len(original_data.get('body', [])) + 1:
+                req_editor.url_table.removeRow(req_editor.url_table.rowCount()-2)
+        elif body_type == 'raw':
+            req_editor.body_raw_radio.setChecked(True)
+            req_editor.raw_text_edit.setPlainText(original_data.get('body', ''))
+            req_editor.raw_type_combo.setCurrentText(original_data.get('raw_type', 'JSON'))
+        else:
+            req_editor.body_none_radio.setChecked(True)
+        
+        # 保存新请求到集合
+        self.save_new_request_to_collections(req_editor, new_name, parent_collection)
+        
+        # 记录日志
+        self.log_info(f'Duplicate request "{original_name}" -> "{new_name}"')
+        
+        # 显示成功消息
+        QMessageBox.information(self, 'Duplicate Success', f'Request "{original_name}" has been duplicated as "{new_name}"')
