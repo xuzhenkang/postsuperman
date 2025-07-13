@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QStackedWidget,
-    QWidget, QLabel, QPushButton, QLineEdit, QComboBox, QSpinBox, QFileDialog, QTableWidget, QTableWidgetItem, QMessageBox, QFontComboBox, QApplication
+    QWidget, QLabel, QPushButton, QLineEdit, QComboBox, QSpinBox, QFileDialog, QTableWidget, QTableWidgetItem, QMessageBox, QFontComboBox, QApplication, QKeySequenceEdit, QStyledItemDelegate
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
@@ -65,28 +65,76 @@ class DataDirectoryPanel(QWidget):
         self.label_log.setText(get_text('select_log_file') + ':')
         self.log_choose_btn.setText(get_text('select_file'))
 
+class ShortcutKeyDelegate(QStyledItemDelegate):
+    def createEditor(self, parent, option, index):
+        editor = QKeySequenceEdit(parent)
+        editor.installEventFilter(self)
+        return editor
+    def setEditorData(self, editor, index):
+        seq = index.model().data(index, Qt.EditRole)
+        if seq:
+            editor.setKeySequence(seq)
+    def setModelData(self, editor, model, index):
+        model.setData(index, editor.keySequence().toString(), Qt.EditRole)
+    def updateEditorGeometry(self, editor, option, index):
+        editor.setGeometry(option.rect)
+    def eventFilter(self, obj, event):
+        from PyQt5.QtCore import QEvent
+        from PyQt5.QtGui import QKeyEvent
+        if isinstance(obj, QKeySequenceEdit) and event.type() == QEvent.KeyPress:
+            key = event.key()
+            if key in (Qt.Key_Tab, Qt.Key_Backtab):
+                obj.keyPressEvent(event)
+                return True  # 阻止表格处理Tab
+            # Ctrl+Tab, Shift+Tab等组合
+            if (event.modifiers() & Qt.ControlModifier and key == Qt.Key_Tab) or \
+               (event.modifiers() & Qt.ShiftModifier and key == Qt.Key_Tab):
+                obj.keyPressEvent(event)
+                return True
+        return super().eventFilter(obj, event)
+
 class ShortcutKeyPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
-        self.label = QLabel(get_text('shortcut_key') + '（示例）：')
+        self.label = QLabel(get_text('shortcut_key') + '：')
         layout.addWidget(self.label)
         self.table = QTableWidget(3, 2)
         self.table.setHorizontalHeaderLabels([get_text('function'), get_text('shortcut_key')])
-        self.table.setItem(0, 0, QTableWidgetItem(get_text('send')))
-        self.table.setItem(0, 1, QTableWidgetItem('Ctrl+Enter'))
-        self.table.setItem(1, 0, QTableWidgetItem(get_text('save')))
-        self.table.setItem(1, 1, QTableWidgetItem('Ctrl+S'))
-        self.table.setItem(2, 0, QTableWidgetItem(get_text('switch_tab') if 'switch_tab' in dir() else '切换标签'))
-        self.table.setItem(2, 1, QTableWidgetItem('Ctrl+Tab'))
+        self.table.setEditTriggers(QTableWidget.AllEditTriggers)
+        self.table.setItemDelegateForColumn(1, ShortcutKeyDelegate(self.table))
         layout.addWidget(self.table)
         layout.addStretch()
+        self.load_current_settings()
+    def load_current_settings(self):
+        from ui.utils.settings_manager import load_settings
+        s = load_settings()
+        shortcuts = s.get('shortcuts', {
+            'send': 'Ctrl+Enter',
+            'save': 'Ctrl+S',
+            'switch_tab': 'Ctrl+Tab'
+        })
+        self.table.setRowCount(3)
+        self.table.setItem(0, 0, QTableWidgetItem(get_text('send')))
+        self.table.setItem(0, 1, QTableWidgetItem(shortcuts.get('send', 'Ctrl+Enter')))
+        self.table.setItem(1, 0, QTableWidgetItem(get_text('save')))
+        self.table.setItem(1, 1, QTableWidgetItem(shortcuts.get('save', 'Ctrl+S')))
+        self.table.setItem(2, 0, QTableWidgetItem(get_text('switch_tab') if 'switch_tab' in get_text.__globals__['_texts'][get_text.__globals__['_language']] else '切换标签'))
+        self.table.setItem(2, 1, QTableWidgetItem(shortcuts.get('switch_tab', 'Ctrl+Tab')))
+    def get_settings(self):
+        return {
+            'shortcuts': {
+                'send': self.table.item(0, 1).text().strip() if self.table.item(0, 1) else 'Ctrl+Enter',
+                'save': self.table.item(1, 1).text().strip() if self.table.item(1, 1) else 'Ctrl+S',
+                'switch_tab': self.table.item(2, 1).text().strip() if self.table.item(2, 1) else 'Ctrl+Tab',
+            }
+        }
     def refresh_texts(self):
-        self.label.setText(get_text('shortcut_key') + '（示例）：')
+        self.label.setText(get_text('shortcut_key') + '：')
         self.table.setHorizontalHeaderLabels([get_text('function'), get_text('shortcut_key')])
         self.table.setItem(0, 0, QTableWidgetItem(get_text('send')))
         self.table.setItem(1, 0, QTableWidgetItem(get_text('save')))
-        self.table.setItem(2, 0, QTableWidgetItem(get_text('switch_tab') if 'switch_tab' in dir() else '切换标签'))
+        self.table.setItem(2, 0, QTableWidgetItem(get_text('switch_tab') if 'switch_tab' in get_text.__globals__['_texts'][get_text.__globals__['_language']] else '切换标签'))
 
 class LanguagePanel(QWidget):
     def __init__(self, parent=None):
@@ -360,6 +408,8 @@ class SettingsDialog(QDialog):
         s.update(data_panel.get_settings())
         # 保存Tab设置
         s.update(self.panels['tab_editor'].get_settings())
+        # 保存快捷键设置
+        s.update(self.panels['shortcut key'].get_settings())
         # 保存Appearance字体设置，并立即生效
         font_settings = self.panels['font_appearance'].get_settings()
         s.update(font_settings)
@@ -394,6 +444,10 @@ class SettingsDialog(QDialog):
         for w in QApplication.topLevelWidgets():
             if hasattr(w, 'refresh_texts'):
                 w.refresh_texts()
+        # 主动刷新主窗口快捷键
+        for w in QApplication.topLevelWidgets():
+            if hasattr(w, 'refresh_shortcuts'):
+                w.refresh_shortcuts()
         if changed:
             QMessageBox.information(self, get_text('info'), get_text('settings_saved') + '\n' + get_text('need_restart'))
         self.accept()

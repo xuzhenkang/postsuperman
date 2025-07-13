@@ -95,6 +95,7 @@ _texts = {
         'copy_success': '复制成功',
         'copy_failed': '复制失败',
         'restore_defaults': '恢复默认',
+        'switch_tab': '切换标签',
         # 右键菜单相关
         'context_new_collection': '新建集合',
         'context_new_request': '新建请求',
@@ -216,6 +217,7 @@ _texts = {
         'copy_success': 'Copy success',
         'copy_failed': 'Copy failed',
         'restore_defaults': 'Restore Defaults',
+        'switch_tab': 'Switch Tab',
         # Context menu related
         'context_new_collection': 'New Collection',
         'context_new_request': 'New Request',

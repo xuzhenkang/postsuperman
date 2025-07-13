@@ -21,6 +21,11 @@ DEFAULT_SETTINGS = {
     "editor_font_family": "Consolas",  # 编辑器默认字体
     "editor_font_size": 12,  # 编辑器默认字号
     "ui_language": "zh",  # UI默认语言
+    "shortcuts": {
+        "send": "Ctrl+Enter",
+        "save": "Ctrl+S",
+        "switch_tab": "Ctrl+Tab"
+    }
 }
 SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
 

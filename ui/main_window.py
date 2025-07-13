@@ -75,9 +75,12 @@ class MainWindow(QWidget):
         self._collections_path = self._settings.get('collections_path')
         self._log_path = self._settings.get('log_path')
         
+        self._shortcut_objs = []  # 保存QShortcut对象，便于刷新
+        
         self.init_logging()
         self.init_ui()
         self.load_collections()
+        self.refresh_shortcuts()  # 初始化快捷键
         
     def get_workspace_dir(self):
         """获取工作目录，兼容开发环境和打包后的exe文件"""
@@ -832,6 +835,9 @@ class MainWindow(QWidget):
 
     def send_request(self, editor=None):
         """发送请求 - threading版本"""
+        # 修复：没有请求标签时不执行
+        if not hasattr(self, 'req_tabs') or self.req_tabs is None or self.req_tabs.count() == 0:
+            return
         try:
             self.ensure_req_tabs()
             if self._sending_request:
@@ -2928,6 +2934,7 @@ Thank you for using PostSuperman!'''
     def show_preferences_dialog(self):
         dlg = SettingsDialog(self)
         dlg.exec_()
+        self.refresh_shortcuts()  # 设置后刷新快捷键
 
     def get_collections_path(self):
         return getattr(self, '_collections_path', None) or 'user-data/collections.json'
@@ -3176,3 +3183,45 @@ Thank you for using PostSuperman!'''
         
         # 显示成功消息
         QMessageBox.information(self, 'Duplicate Success', f'Request "{original_name}" has been duplicated as "{new_name}"')
+
+    def refresh_shortcuts(self):
+        """刷新全局快捷键"""
+        from PyQt5.QtWidgets import QShortcut
+        from PyQt5.QtGui import QKeySequence
+        # 先清理旧的
+        for sc in getattr(self, '_shortcut_objs', []):
+            try:
+                sc.disconnect()
+                sc.setParent(None)
+            except Exception:
+                pass
+        self._shortcut_objs = []
+        s = load_settings()
+        shortcuts = s.get('shortcuts', {
+            'send': 'Ctrl+Enter',
+            'save': 'Ctrl+S',
+            'switch_tab': 'Ctrl+Tab'
+        })
+        # 发送请求快捷键
+        send_sc = QShortcut(QKeySequence(shortcuts.get('send', 'Ctrl+Enter')), self)
+        send_sc.activated.connect(lambda: self.send_request())
+        self._shortcut_objs.append(send_sc)
+        # 保存请求快捷键
+        save_sc = QShortcut(QKeySequence(shortcuts.get('save', 'Ctrl+S')), self)
+        save_sc.activated.connect(self._save_current_request_tab)
+        self._shortcut_objs.append(save_sc)
+        # 切换标签快捷键
+        switch_tab_sc = QShortcut(QKeySequence(shortcuts.get('switch_tab', 'Ctrl+Tab')), self)
+        switch_tab_sc.activated.connect(self._switch_tab)
+        self._shortcut_objs.append(switch_tab_sc)
+    def _save_current_request_tab(self):
+        if hasattr(self, 'req_tabs') and self.req_tabs:
+            editor = self.req_tabs.currentWidget()
+            if editor and hasattr(editor, 'save_to_tree'):
+                editor.save_to_tree()
+    def _switch_tab(self):
+        if hasattr(self, 'req_tabs') and self.req_tabs:
+            idx = self.req_tabs.currentIndex()
+            count = self.req_tabs.count()
+            if count > 1:
+                self.req_tabs.setCurrentIndex((idx + 1) % count)

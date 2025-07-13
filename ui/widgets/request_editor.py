@@ -226,7 +226,6 @@ class RequestEditor(QWidget):
         # 添加快捷键
         from PyQt5.QtWidgets import QShortcut
         from PyQt5.QtGui import QKeySequence
-        QShortcut(QKeySequence('Ctrl+S'), self, self.save_to_tree)
         
         # 设置Beautify按钮的初始可见性
         self.beautify_btn.setVisible(True)  # 默认JSON类型显示
@@ -391,11 +390,16 @@ class RequestEditor(QWidget):
     def mark_dirty(self):
         """标记为已修改"""
         mainwin = self.window()
-        if hasattr(mainwin, 'req_tabs'):
-            idx = mainwin.req_tabs.indexOf(self)
-            if idx >= 0 and not mainwin.req_tabs.tabText(idx).endswith('*'):
-                mainwin.req_tabs.setTabText(idx, mainwin.req_tabs.tabText(idx) + '*')
-        self._dirty = True
+        # 修复：QTabWidget已被删除时不再操作
+        try:
+            if hasattr(mainwin, 'req_tabs') and mainwin.req_tabs:
+                idx = mainwin.req_tabs.indexOf(self)
+                if idx >= 0 and not mainwin.req_tabs.tabText(idx).endswith('*'):
+                    mainwin.req_tabs.setTabText(idx, mainwin.req_tabs.tabText(idx) + '*')
+            self._dirty = True
+        except RuntimeError:
+            # QTabWidget已被删除，忽略
+            pass
         
     def save_to_tree(self):
         """保存到树"""
