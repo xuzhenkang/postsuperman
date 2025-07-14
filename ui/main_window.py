@@ -2655,7 +2655,9 @@ Thank you for using PostSuperman!'''
         from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel, QApplication
         from PyQt5.QtCore import QTimer
         from PyQt5.QtGui import QClipboard
-        import shlex
+        def postman_shell_quote(s):
+            # 单引号包裹，内部单引号用 '\'' 嵌套
+            return "'" + s.replace("'", "'\\''") + "'"
         dlg = QDialog(self)
         dlg.setWindowTitle('cURL')
         layout = QVBoxLayout(dlg)
@@ -2667,7 +2669,6 @@ Thank you for using PostSuperman!'''
         method = current_editor.method_combo.currentText()
         url = current_editor.url_edit.text().strip()
         headers = []
-        # 检查form-data文件型，自动加Content-Type
         auto_multipart = False
         if current_editor.body_form_radio.isChecked():
             for row in range(current_editor.form_table.rowCount() - 1):
@@ -2681,16 +2682,12 @@ Thank you for using PostSuperman!'''
             if key_item and value_item and key_item.text().strip():
                 key = key_item.text().strip()
                 value = value_item.text().strip()
-                key = key.replace("'", "'\"'\"'")
-                value = value.replace("'", "'\"'\"'")
-                headers.append(f"-H '{key}: {value}'")
+                headers.append(f"-H {postman_shell_quote(f'{key}: {value}')}")
         if auto_multipart:
-            has_ct = any(h.startswith("-H 'Content-Type:") for h in headers)
+            has_ct = any(h.startswith("-H 'Content-Type:") or h.startswith('-H "Content-Type:') for h in headers)
             if not has_ct:
-                headers.append("-H 'Content-Type: multipart/form-data'")
-        curl_parts = ["curl"]
-        curl_parts.append(f"-X {method}")
-        curl_parts.extend(headers)
+                headers.append(f"-H {postman_shell_quote('Content-Type: multipart/form-data')}")
+        # Params
         params = []
         for row in range(current_editor.params_table.rowCount()-1):
             key_item = current_editor.params_table.item(row, 1)
@@ -2702,42 +2699,42 @@ Thank you for using PostSuperman!'''
                 key = quote(key, safe='')
                 value = quote(value, safe='')
                 params.append(f"{key}={value}")
+        url_full = url
         if params:
-            url += "?" + "&".join(params)
-        url = url.replace("'", "'\"'\"'")
-        curl_parts.append(f"'{url}'")
+            url_full += "?" + "&".join(params)
+        # 构建 cURL 命令
+        curl_parts = [f"curl -X {method}"]
+        curl_parts.append(postman_shell_quote(url_full))
+        curl_parts.extend(headers)
+        # Body
         if current_editor.body_raw_radio.isChecked():
-            body_data = current_editor.raw_text_edit.toPlainText().strip()
+            body_data = current_editor.raw_text_edit.toPlainText()
             if body_data:
-                body_data = body_data.replace("'", "'\"'\"'")
-                curl_parts.append(f"-d '{body_data}'")
+                # 保持 body 原始格式，不加反斜杠
+                curl_parts.append(f"-d {postman_shell_quote(body_data)}")
         elif current_editor.body_form_radio.isChecked():
             for row in range(current_editor.form_table.rowCount()-1):
                 key_item = current_editor.form_table.item(row, 1)
                 type_combo = current_editor.form_table.cellWidget(row, 2)
                 value_item = current_editor.form_table.item(row, 3)
                 if key_item and value_item and key_item.text().strip():
-                    key = key_item.text().strip().replace("'", "'\"'\"'")
+                    key = key_item.text().strip()
                     type_val = type_combo.currentText() if type_combo else 'Text'
                     value = value_item.text().strip()
                     if type_val == 'File' and value:
-                        curl_parts.append(f"-F '{key}=@{value}'")
+                        curl_parts.append(f"-F {postman_shell_quote(f'{key}=@{value}')}")
                     else:
-                        value = value.replace("'", "'\"'\"'")
-                        curl_parts.append(f"-F '{key}={value}'")
+                        curl_parts.append(f"-F {postman_shell_quote(f'{key}={value}')}")
         elif current_editor.body_url_radio.isChecked():
-            url_data = []
             for row in range(current_editor.url_table.rowCount()-1):
                 key_item = current_editor.url_table.item(row, 1)
                 value_item = current_editor.url_table.item(row, 2)
                 if key_item and value_item and key_item.text().strip():
                     key = key_item.text().strip()
                     value = value_item.text().strip()
-                    key = key.replace("'", "'\"'\"'")
-                    value = value.replace("'", "'\"'\"'")
-                    url_data.append(f"-d '{key}={value}'")
-            curl_parts.extend(url_data)
-        curl = " ".join(curl_parts)
+                    curl_parts.append(f"-d {postman_shell_quote(f'{key}={value}')}")
+        curl = (curl_parts[0] +
+                (" \\\n  " + " \\\n  ".join(curl_parts[1:]) if len(curl_parts) > 1 else ""))
         curl_edit = QTextEdit()
         curl_edit.setReadOnly(True)
         curl_edit.setPlainText(curl)
