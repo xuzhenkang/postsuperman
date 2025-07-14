@@ -99,6 +99,7 @@ _texts = {
         'undo': '撤销',
         'redo': '重做',
         'find': '查找/替换',
+        'beautify': '格式化/美化',
         # 右键菜单相关
         'context_new_collection': '新建集合',
         'context_new_request': '新建请求',
@@ -240,6 +241,7 @@ _texts = {
         'undo': 'Undo',
         'redo': 'Redo',
         'find': 'Find/Replace',
+        'beautify': 'Beautify',
         # Context menu related
         'context_new_collection': 'New Collection',
         'context_new_request': 'New Request',

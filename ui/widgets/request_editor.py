@@ -245,6 +245,8 @@ class RequestEditor(QWidget):
         self._redo_sc.activated.connect(self.raw_text_edit.redo)
         self._find_sc = QShortcut(QKeySequence(shortcuts.get('find', 'Ctrl+F')), self.raw_text_edit)
         self._find_sc.activated.connect(self.show_find_replace_dialog)
+        self._beautify_sc = QShortcut(QKeySequence(shortcuts.get('beautify', 'Ctrl+B')), self.raw_text_edit)
+        self._beautify_sc.activated.connect(self.beautify_json)
         
         # 设置Beautify按钮的初始可见性
         self.beautify_btn.setVisible(True)  # 默认JSON类型显示

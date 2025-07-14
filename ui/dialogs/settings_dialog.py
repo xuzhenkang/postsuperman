@@ -99,8 +99,8 @@ class ShortcutKeyPanel(QWidget):
         layout = QVBoxLayout(self)
         self.label = QLabel(get_text('shortcut_key') + '：')
         layout.addWidget(self.label)
-        # 扩展为6行：send, save, switch_tab, undo, redo, find
-        self.table = QTableWidget(6, 2)
+        # 扩展为7行：send, save, switch_tab, undo, redo, find, beautify
+        self.table = QTableWidget(7, 2)
         self.table.setHorizontalHeaderLabels([get_text('function'), get_text('shortcut_key')])
         self.table.setEditTriggers(QTableWidget.AllEditTriggers)
         self.table.setItemDelegateForColumn(1, ShortcutKeyDelegate(self.table))
@@ -116,17 +116,18 @@ class ShortcutKeyPanel(QWidget):
             'undo': 'Ctrl+Z',
             'redo': 'Ctrl+Y',
             'find': 'Ctrl+F',
+            'beautify': 'Ctrl+B',
         })
-        # send, save, switch_tab, undo, redo, find
-        functions = [get_text('send'), get_text('save'), get_text('switch_tab'), get_text('undo'), get_text('redo'), get_text('find')]
-        keys = ['send', 'save', 'switch_tab', 'undo', 'redo', 'find']
+        # send, save, switch_tab, undo, redo, find, beautify
+        functions = [get_text('send'), get_text('save'), get_text('switch_tab'), get_text('undo'), get_text('redo'), get_text('find'), get_text('beautify')]
+        keys = ['send', 'save', 'switch_tab', 'undo', 'redo', 'find', 'beautify']
         for i, (func, key) in enumerate(zip(functions, keys)):
             self.table.setItem(i, 0, QTableWidgetItem(func))
             self.table.setItem(i, 1, QTableWidgetItem(shortcuts.get(key, '')))
     def get_settings(self):
         shortcuts = {}
         for i in range(self.table.rowCount()):
-            key = ['send', 'save', 'switch_tab', 'undo', 'redo', 'find'][i]
+            key = ['send', 'save', 'switch_tab', 'undo', 'redo', 'find', 'beautify'][i]
             val = self.table.item(i, 1).text().strip()
             if val:
                 shortcuts[key] = val
@@ -134,7 +135,7 @@ class ShortcutKeyPanel(QWidget):
     def refresh_texts(self):
         self.label.setText(get_text('shortcut_key') + '：')
         self.table.setHorizontalHeaderLabels([get_text('function'), get_text('shortcut_key')])
-        functions = [get_text('send'), get_text('save'), get_text('switch_tab'), get_text('undo'), get_text('redo'), get_text('find')]
+        functions = [get_text('send'), get_text('save'), get_text('switch_tab'), get_text('undo'), get_text('redo'), get_text('find'), get_text('beautify')]
         for i, func in enumerate(functions):
             self.table.setItem(i, 0, QTableWidgetItem(func))
 
