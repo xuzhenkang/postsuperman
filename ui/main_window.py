@@ -559,17 +559,9 @@ class MainWindow(QWidget):
 
     # 核心功能实现
     def create_new_request(self):
-        self.fix_all_collection_icons()  # 保证所有Collection节点icon正确
-        from PyQt5.QtWidgets import QInputDialog, QMessageBox
+        self.fix_all_collection_icons()
+        from PyQt5.QtWidgets import QInputDialog, QMessageBox, QTreeWidgetItem
         selected_item = self.collection_tree.currentItem()
-        print("selected_item:", selected_item, flush=True)
-        if selected_item:
-            print("icon:", selected_item.icon(0), flush=True)
-            print("is_collection_node:", self.is_collection_node(selected_item), flush=True)
-            print("is_request_node:", self.is_request_node(selected_item), flush=True)
-            print("childCount:", selected_item.childCount(), "parent:", selected_item.parent(), flush=True)
-            print("icon==file_icon:", selected_item.icon(0).pixmap(16,16).toImage() == self.file_icon.pixmap(16,16).toImage(), flush=True)
-            print("icon==folder_icon:", selected_item.icon(0).pixmap(16,16).toImage() == self.folder_icon.pixmap(16,16).toImage(), flush=True)
         if selected_item and self.is_request_node(selected_item):
             QMessageBox.information(
                 self,
@@ -577,24 +569,24 @@ class MainWindow(QWidget):
                 'Cannot create a request under another request.\n\nPlease select a collection or no item to create a new request.'
             )
             return
-        
+
         request_name, ok = QInputDialog.getText(
             self, 
             'New Request', 
             'Enter request name:',
             text='New Request'
         )
-        
         if not ok or not request_name.strip():
-            return  # 用户取消或输入为空
-        
-        # 检查名称是否重复
-        def check_name_exists(parent_item, name):
-            for i in range(parent_item.childCount()):
-                if parent_item.child(i).text(0) == name:
-                    return True
-            return False
-        
+            return
+
+        def get_request_path(item):
+            path_parts = []
+            current = item
+            while current is not None:
+                path_parts.insert(0, current.text(0))
+                current = current.parent()
+            return '/'.join(path_parts)
+
         # 获取父Collection
         parent_collection = None
         if selected_item:
@@ -602,7 +594,6 @@ class MainWindow(QWidget):
                 parent_collection = selected_item
             elif self.is_request_node(selected_item):
                 parent_collection = selected_item.parent()
-        # 如果没有选中任何Collection，查找或创建默认Collection
         if parent_collection is None:
             for i in range(self.collection_tree.topLevelItemCount()):
                 item = self.collection_tree.topLevelItem(i)
@@ -615,43 +606,43 @@ class MainWindow(QWidget):
                 new_item.setData(0, Qt.UserRole+1, 'collection')
                 self.collection_tree.addTopLevelItem(new_item)
                 parent_collection = new_item
-        
+
         # 检查名称是否在父Collection中重复
-        if check_name_exists(parent_collection, request_name):
-            QMessageBox.warning(
-                self, 
-                'Duplicate Name', 
-                f'A request named "{request_name}" already exists in this collection!'
-            )
-            return
-        
-        # 确保请求区域已创建
+        for i in range(parent_collection.childCount()):
+            if parent_collection.child(i).text(0) == request_name:
+                QMessageBox.warning(
+                    self, 
+                    'Duplicate Name', 
+                    f'A request named "{request_name}" already exists in this collection!'
+                )
+                return
+
         self.ensure_req_tabs()
-        
-        # 生成包含Collection路径的Tab标签
-        def get_collection_path(parent_collection):
-            path_parts = []
-            current = parent_collection
-            while current is not None:
-                path_parts.insert(0, current.text(0))
-                current = current.parent()
-            return '/'.join(path_parts)
-        
-        collection_path = get_collection_path(parent_collection)
-        full_request_path = f"{collection_path}/{request_name}"
-        
-        # 创建新的请求编辑器
+
+        # 先模拟新节点路径
+        temp_item = QTreeWidgetItem([request_name])
+        temp_item.setParent(parent_collection)
+        request_path = get_request_path(temp_item)
+        temp_item.setParent(None)  # 清理
+
+        # 新建Tab前，先查找是否已存在
+        for i in range(self.req_tabs.count()):
+            print(f'[DEBUG] before add: tabData[{i}]={{self.req_tabs.tabBar().tabData(i)}}')
+            if self.req_tabs.tabBar().tabData(i) == request_path:
+                self.req_tabs.setCurrentIndex(i)
+                print(f'[DEBUG] Prevent duplicate tab for {{request_path}}')
+                return
+
+        # 真正新建
         from ui.widgets.request_editor import RequestEditor
         req_editor = RequestEditor(self, req_name=request_name)
-        tab_index = self.req_tabs.addTab(req_editor, full_request_path)
+        tab_index = self.req_tabs.addTab(req_editor, request_path)
+        self.req_tabs.tabBar().setTabData(tab_index, request_path)  # tabText和tabData完全一致
+        print(f'[DEBUG] setTabData: tab_index={tab_index}, request_path={request_path}')
         self.req_tabs.setCurrentWidget(req_editor)
-        
-        # 为新Tab创建Response区域
         self.show_response_for_tab(tab_index)
-        
-        # 自动保存新请求到collections.json
         self.save_new_request_to_collections(req_editor, request_name, parent_collection)
-        
+
         # 在树中选中新创建的Request
         new_request_item = None
         for i in range(parent_collection.childCount()):
@@ -659,11 +650,9 @@ class MainWindow(QWidget):
             if child.text(0) == request_name:
                 new_request_item = child
                 break
-        
         if new_request_item:
             self.collection_tree.setCurrentItem(new_request_item)
             self.collection_tree.scrollToItem(new_request_item)
-        
         self.log_info(f'Create new request "{request_name}" in collection: {parent_collection.text(0)}')
 
     def save_new_request_to_collections(self, req_editor, request_name, parent_collection):
@@ -1834,6 +1823,8 @@ class MainWindow(QWidget):
                 if has_star:
                     new_tab_text += '*'
                 self.req_tabs.setTabText(i, new_tab_text)
+                # 同步更新tabData
+                self.req_tabs.tabBar().setTabData(i, new_tab_text)
                 print(f'Updated tab after request rename: "{tab_text}" -> "{new_tab_text}" (old_path={old_path}, new_path={new_path})', flush=True)
                 self.log_info(f'Updated tab after request rename: "{tab_text}" -> "{new_tab_text}" (old_path={old_path}, new_path={new_path})')
                 updated = True
@@ -2005,7 +1996,6 @@ Thank you for using PostSuperman!'''
     # 集合相关事件处理
     def show_collection_menu(self, pos):
         """显示集合右键菜单"""
-        from PyQt5.QtWidgets import QMenu, QMessageBox, QInputDialog
         from ui.utils.i18n import get_text
         item = self.collection_tree.itemAt(pos)
         menu = QMenu(self)
