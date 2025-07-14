@@ -99,7 +99,8 @@ class ShortcutKeyPanel(QWidget):
         layout = QVBoxLayout(self)
         self.label = QLabel(get_text('shortcut_key') + '：')
         layout.addWidget(self.label)
-        self.table = QTableWidget(3, 2)
+        # 扩展为6行：send, save, switch_tab, undo, redo, find
+        self.table = QTableWidget(6, 2)
         self.table.setHorizontalHeaderLabels([get_text('function'), get_text('shortcut_key')])
         self.table.setEditTriggers(QTableWidget.AllEditTriggers)
         self.table.setItemDelegateForColumn(1, ShortcutKeyDelegate(self.table))
@@ -108,33 +109,34 @@ class ShortcutKeyPanel(QWidget):
         self.load_current_settings()
     def load_current_settings(self):
         from ui.utils.settings_manager import load_settings
-        s = load_settings()
-        shortcuts = s.get('shortcuts', {
+        shortcuts = load_settings().get('shortcuts', {
             'send': 'Ctrl+Enter',
             'save': 'Ctrl+S',
-            'switch_tab': 'Ctrl+Tab'
+            'switch_tab': 'Ctrl+Tab',
+            'undo': 'Ctrl+Z',
+            'redo': 'Ctrl+Y',
+            'find': 'Ctrl+F',
         })
-        self.table.setRowCount(3)
-        self.table.setItem(0, 0, QTableWidgetItem(get_text('send')))
-        self.table.setItem(0, 1, QTableWidgetItem(shortcuts.get('send', 'Ctrl+Enter')))
-        self.table.setItem(1, 0, QTableWidgetItem(get_text('save')))
-        self.table.setItem(1, 1, QTableWidgetItem(shortcuts.get('save', 'Ctrl+S')))
-        self.table.setItem(2, 0, QTableWidgetItem(get_text('switch_tab') if 'switch_tab' in get_text.__globals__['_texts'][get_text.__globals__['_language']] else '切换标签'))
-        self.table.setItem(2, 1, QTableWidgetItem(shortcuts.get('switch_tab', 'Ctrl+Tab')))
+        # send, save, switch_tab, undo, redo, find
+        functions = [get_text('send'), get_text('save'), get_text('switch_tab'), get_text('undo'), get_text('redo'), get_text('find')]
+        keys = ['send', 'save', 'switch_tab', 'undo', 'redo', 'find']
+        for i, (func, key) in enumerate(zip(functions, keys)):
+            self.table.setItem(i, 0, QTableWidgetItem(func))
+            self.table.setItem(i, 1, QTableWidgetItem(shortcuts.get(key, '')))
     def get_settings(self):
-        return {
-            'shortcuts': {
-                'send': self.table.item(0, 1).text().strip() if self.table.item(0, 1) else 'Ctrl+Enter',
-                'save': self.table.item(1, 1).text().strip() if self.table.item(1, 1) else 'Ctrl+S',
-                'switch_tab': self.table.item(2, 1).text().strip() if self.table.item(2, 1) else 'Ctrl+Tab',
-            }
-        }
+        shortcuts = {}
+        for i in range(self.table.rowCount()):
+            key = ['send', 'save', 'switch_tab', 'undo', 'redo', 'find'][i]
+            val = self.table.item(i, 1).text().strip()
+            if val:
+                shortcuts[key] = val
+        return {'shortcuts': shortcuts}
     def refresh_texts(self):
         self.label.setText(get_text('shortcut_key') + '：')
         self.table.setHorizontalHeaderLabels([get_text('function'), get_text('shortcut_key')])
-        self.table.setItem(0, 0, QTableWidgetItem(get_text('send')))
-        self.table.setItem(1, 0, QTableWidgetItem(get_text('save')))
-        self.table.setItem(2, 0, QTableWidgetItem(get_text('switch_tab') if 'switch_tab' in get_text.__globals__['_texts'][get_text.__globals__['_language']] else '切换标签'))
+        functions = [get_text('send'), get_text('save'), get_text('switch_tab'), get_text('undo'), get_text('redo'), get_text('find')]
+        for i, func in enumerate(functions):
+            self.table.setItem(i, 0, QTableWidgetItem(func))
 
 class LanguagePanel(QWidget):
     def __init__(self, parent=None):

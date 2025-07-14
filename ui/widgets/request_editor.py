@@ -234,6 +234,17 @@ class RequestEditor(QWidget):
         # 添加快捷键
         from PyQt5.QtWidgets import QShortcut
         from PyQt5.QtGui import QKeySequence
+        import ui.utils.settings_manager as settings_manager
+        shortcuts = settings_manager.load_settings().get('shortcuts', {
+            'undo': 'Ctrl+Z',
+            'find': 'Ctrl+F',
+        })
+        self._undo_sc = QShortcut(QKeySequence(shortcuts.get('undo', 'Ctrl+Z')), self.raw_text_edit)
+        self._undo_sc.activated.connect(self.raw_text_edit.undo)
+        self._redo_sc = QShortcut(QKeySequence(shortcuts.get('redo', 'Ctrl+Y')), self.raw_text_edit)
+        self._redo_sc.activated.connect(self.raw_text_edit.redo)
+        self._find_sc = QShortcut(QKeySequence(shortcuts.get('find', 'Ctrl+F')), self.raw_text_edit)
+        self._find_sc.activated.connect(self.show_find_replace_dialog)
         
         # 设置Beautify按钮的初始可见性
         self.beautify_btn.setVisible(True)  # 默认JSON类型显示
@@ -652,6 +663,7 @@ class RequestEditor(QWidget):
                     status_label.setText(get_text('regex_error').format(err=e))
                     return
                 new_text = regex.sub(repl, sel_text, count=1)
+                # 用QTextCursor替换，保留undo栈
                 cursor.insertText(new_text)
                 status_label.setText(get_text('replaced'))
                 do_find_next()
@@ -673,9 +685,22 @@ class RequestEditor(QWidget):
             except Exception as e:
                 status_label.setText(get_text('regex_error').format(err=e))
                 return
-            new_text, n = regex.subn(repl, text)
-            self.raw_text_edit.setPlainText(new_text)
-            status_label.setText(get_text('replace_all_done').format(count=n))
+            # 用QTextCursor逐个替换，保留undo栈
+            cursor = self.raw_text_edit.textCursor()
+            cursor.beginEditBlock()
+            count = 0
+            pos = 0
+            while True:
+                m = regex.search(self.raw_text_edit.toPlainText(), pos)
+                if not m:
+                    break
+                cursor.setPosition(m.start())
+                cursor.setPosition(m.end(), cursor.KeepAnchor)
+                cursor.insertText(repl)
+                pos = m.start() + len(repl)
+                count += 1
+            cursor.endEditBlock()
+            status_label.setText(get_text('replace_all_done').format(count=count))
         find_next_btn.clicked.connect(do_find_next)
         replace_btn.clicked.connect(do_replace)
         replace_all_btn.clicked.connect(do_replace_all)

@@ -96,6 +96,9 @@ _texts = {
         'copy_failed': '复制失败',
         'restore_defaults': '恢复默认',
         'switch_tab': '切换标签',
+        'undo': '撤销',
+        'redo': '重做',
+        'find': '查找/替换',
         # 右键菜单相关
         'context_new_collection': '新建集合',
         'context_new_request': '新建请求',
@@ -234,6 +237,9 @@ _texts = {
         'copy_failed': 'Copy failed',
         'restore_defaults': 'Restore Defaults',
         'switch_tab': 'Switch Tab',
+        'undo': 'Undo',
+        'redo': 'Redo',
+        'find': 'Find/Replace',
         # Context menu related
         'context_new_collection': 'New Collection',
         'context_new_request': 'New Request',
