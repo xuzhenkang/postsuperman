@@ -14,6 +14,7 @@ from .json_highlighter import JsonHighlighter
 import json
 import os
 import uuid
+from ui.utils.i18n import get_text
 
 
 class RequestEditor(QWidget):
@@ -166,6 +167,11 @@ class RequestEditor(QWidget):
         self.beautify_btn = QPushButton('Beautify')
         self.beautify_btn.setToolTip('格式化/美化 JSON (快捷键 Ctrl+B)')
         raw_top_layout.addWidget(self.beautify_btn)
+        
+        # 新增查找/替换按钮
+        self.find_replace_btn = QPushButton(get_text('find_replace'))
+        self.find_replace_btn.setToolTip(get_text('find_replace_tooltip'))
+        raw_top_layout.addWidget(self.find_replace_btn)
         raw_top_layout.addStretch()
         
         raw_main_layout.addLayout(raw_top_layout)
@@ -186,6 +192,8 @@ class RequestEditor(QWidget):
         self.body_url_radio.toggled.connect(lambda checked: checked and self.body_stack.setCurrentIndex(2))
         self.body_raw_radio.toggled.connect(lambda checked: checked and self.body_stack.setCurrentIndex(3))
         self.beautify_btn.clicked.connect(self.beautify_json)
+        # 连接查找/替换按钮
+        self.find_replace_btn.clicked.connect(self.show_find_replace_dialog)
         
         body_tab_layout.addWidget(self.body_stack)
         
@@ -551,3 +559,124 @@ class RequestEditor(QWidget):
             'body': body_data,
             'raw_type': self.raw_type_combo.currentText() if body_type == 'raw' else 'JSON'
         } 
+
+    def show_find_replace_dialog(self):
+        """弹出查找/替换对话框，支持正则"""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QCheckBox, QPushButton, QMessageBox
+        import re
+        dlg = QDialog(self)
+        dlg.setWindowTitle(get_text('find_replace_title'))
+        layout = QVBoxLayout(dlg)
+        # 查找内容
+        find_row = QHBoxLayout()
+        find_row.addWidget(QLabel(get_text('find_label')))
+        find_edit = QLineEdit()
+        find_row.addWidget(find_edit)
+        layout.addLayout(find_row)
+        # 替换内容
+        replace_row = QHBoxLayout()
+        replace_row.addWidget(QLabel(get_text('replace_label')))
+        replace_edit = QLineEdit()
+        replace_row.addWidget(replace_edit)
+        layout.addLayout(replace_row)
+        # 选项
+        options_row = QHBoxLayout()
+        regex_cb = QCheckBox(get_text('regex_label'))
+        case_cb = QCheckBox(get_text('case_label'))
+        options_row.addWidget(regex_cb)
+        options_row.addWidget(case_cb)
+        options_row.addStretch()
+        layout.addLayout(options_row)
+        # 按钮
+        btn_row = QHBoxLayout()
+        find_next_btn = QPushButton(get_text('find_next'))
+        replace_btn = QPushButton(get_text('replace'))
+        replace_all_btn = QPushButton(get_text('replace_all'))
+        btn_row.addWidget(find_next_btn)
+        btn_row.addWidget(replace_btn)
+        btn_row.addWidget(replace_all_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+        # 状态
+        status_label = QLabel()
+        layout.addWidget(status_label)
+        # 状态变量
+        self._find_replace_last_pos = 0
+        self._find_replace_last_text = ''
+        # 查找下一个
+        def do_find_next():
+            text = self.raw_text_edit.toPlainText()
+            pattern = find_edit.text()
+            flags = 0
+            if not case_cb.isChecked():
+                flags |= re.IGNORECASE
+            try:
+                if regex_cb.isChecked():
+                    regex = re.compile(pattern, flags)
+                else:
+                    regex = re.compile(re.escape(pattern), flags)
+            except Exception as e:
+                status_label.setText(get_text('regex_error').format(err=e))
+                return
+            start = self._find_replace_last_pos if self._find_replace_last_text == text else 0
+            m = regex.search(text, start)
+            if m:
+                self.raw_text_edit.setFocus()
+                cursor = self.raw_text_edit.textCursor()
+                cursor.setPosition(m.start())
+                cursor.setPosition(m.end(), cursor.KeepAnchor)
+                self.raw_text_edit.setTextCursor(cursor)
+                self._find_replace_last_pos = m.end()
+                self._find_replace_last_text = text
+                status_label.setText(get_text('found_at').format(pos=m.start()))
+            else:
+                status_label.setText(get_text('not_found'))
+                self._find_replace_last_pos = 0
+                self._find_replace_last_text = text
+        # 替换当前
+        def do_replace():
+            cursor = self.raw_text_edit.textCursor()
+            if cursor.hasSelection():
+                sel_text = cursor.selectedText()
+                pattern = find_edit.text()
+                repl = replace_edit.text()
+                flags = 0
+                if not case_cb.isChecked():
+                    flags |= re.IGNORECASE
+                try:
+                    if regex_cb.isChecked():
+                        regex = re.compile(pattern, flags)
+                    else:
+                        regex = re.compile(re.escape(pattern), flags)
+                except Exception as e:
+                    status_label.setText(get_text('regex_error').format(err=e))
+                    return
+                new_text = regex.sub(repl, sel_text, count=1)
+                cursor.insertText(new_text)
+                status_label.setText(get_text('replaced'))
+                do_find_next()
+            else:
+                do_find_next()
+        # 全部替换
+        def do_replace_all():
+            text = self.raw_text_edit.toPlainText()
+            pattern = find_edit.text()
+            repl = replace_edit.text()
+            flags = 0
+            if not case_cb.isChecked():
+                flags |= re.IGNORECASE
+            try:
+                if regex_cb.isChecked():
+                    regex = re.compile(pattern, flags)
+                else:
+                    regex = re.compile(re.escape(pattern), flags)
+            except Exception as e:
+                status_label.setText(get_text('regex_error').format(err=e))
+                return
+            new_text, n = regex.subn(repl, text)
+            self.raw_text_edit.setPlainText(new_text)
+            status_label.setText(get_text('replace_all_done').format(count=n))
+        find_next_btn.clicked.connect(do_find_next)
+        replace_btn.clicked.connect(do_replace)
+        replace_all_btn.clicked.connect(do_replace_all)
+        dlg.exec_() 
